@@ -3,17 +3,14 @@ from typing import Dict, Optional
 
 import numpy as np
 import torch as th
-from gym3.types import DictType
 from torch import nn
 from torch.nn import functional as F
 
-from openai_vpt.lib.action_head import make_action_head
-from openai_vpt.lib.action_mapping import CameraHierarchicalMapping
-from openai_vpt.lib.impala_cnn import ImpalaCNN
-from openai_vpt.lib.normalize_ewma import NormalizeEwma
-from openai_vpt.lib.scaled_mse_head import ScaledMSEHead
-from openai_vpt.lib.tree_util import tree_map
-from openai_vpt.lib.util import FanInInitReLULayer, ResidualRecurrentBlocks
+from src.openai_vpt.lib.action_head import make_action_head
+from src.openai_vpt.lib.impala_cnn import ImpalaCNN
+from src.openai_vpt.lib.scaled_mse_head import ScaledMSEHead
+from src.openai_vpt.lib.tree_util import tree_map
+from src.openai_vpt.lib.util import FanInInitReLULayer, ResidualRecurrentBlocks
 
 
 class ImgPreprocessing(nn.Module):

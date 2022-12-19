@@ -4,10 +4,10 @@ import cv2
 from gym3.types import DictType
 from gym import spaces
 
-from openai_vpt.lib.action_mapping import CameraHierarchicalMapping
-from openai_vpt.lib.actions import ActionTransformer
-from openai_vpt.lib.policy import MinecraftAgentPolicy
-from openai_vpt.lib.torch_util import default_device_type, set_default_torch_device
+from src.openai_vpt.lib.action_mapping import CameraHierarchicalMapping
+from src.openai_vpt.lib.actions import ActionTransformer
+from src.openai_vpt.lib.policy import MinecraftAgentPolicy
+from src.openai_vpt.lib.torch_util import default_device_type, set_default_torch_device
 
 
 # Hardcoded settings
@@ -108,6 +108,7 @@ class MineRLAgent:
         agent_kwargs = dict(policy_kwargs=policy_kwargs, pi_head_kwargs=pi_head_kwargs, action_space=action_space)
 
         self.policy = MinecraftAgentPolicy(**agent_kwargs).to(device)
+        print(f"{self.policy=}")
         self.hidden_state = self.policy.initial_state(1)
         self._dummy_first = th.from_numpy(np.array((False,))).to(device)
 
@@ -131,10 +132,12 @@ class MineRLAgent:
         return agent_input
 
     def _agent_action_to_env(self, agent_action):
-        """Turn output from policy into action for MineRL"""
-        # This is quite important step (for some reason).
-        # For the sake of your sanity, remember to do this step (manual conversion to numpy)
-        # before proceeding. Otherwise, your agent might be a little derp.
+        """
+        Turn output from policy into action for MineRL
+        This is quite important step (for some reason).
+        For the sake of your sanity, remember to do this step (manual conversion to numpy)
+        before proceeding. Otherwise, your agent might be a little derp.
+        """
         action = agent_action
         if isinstance(action["buttons"], th.Tensor):
             action = {

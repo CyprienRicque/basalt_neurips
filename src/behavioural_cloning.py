@@ -14,9 +14,9 @@ import torch
 import numpy as np
 from tqdm import tqdm
 
-from openai_vpt.agent import PI_HEAD_KWARGS, MineRLAgent
-from data_loader import DataLoader
-from openai_vpt.lib.tree_util import tree_map
+from src.openai_vpt.agent import PI_HEAD_KWARGS, MineRLAgent
+from src.data_loader import DataLoader
+from src.openai_vpt.lib.tree_util import tree_map
 
 # Originally this code was designed for a small dataset of ~20 demonstrations per task.
 # The settings might not be the best for the full BASALT dataset (thousands of demonstrations).
@@ -191,8 +191,8 @@ def behavioural_cloning_train(
             pbar.set_description(refresh=True, desc=f"Avg loss: {loss_sum / LOSS_REPORT_RATE:.4f}")
             loss_sum = 0
 
-        if batch_i > MAX_BATCHES:
-            break
+        # if batch_i > MAX_BATCHES:
+        #     break
 
     state_dict = policy.state_dict()
     torch.save(state_dict, out_weights)

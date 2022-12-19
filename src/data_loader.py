@@ -10,13 +10,13 @@ from multiprocessing import Process, Queue, Event
 import numpy as np
 import cv2
 
-from openai_vpt.agent import ACTION_TRANSFORMER_KWARGS, resize_image, AGENT_RESOLUTION
-from openai_vpt.lib.actions import ActionTransformer
+from src.openai_vpt.agent import ACTION_TRANSFORMER_KWARGS, resize_image, AGENT_RESOLUTION
+from src.openai_vpt.lib.actions import ActionTransformer
 
 QUEUE_TIMEOUT = 10
 
 CURSOR_FILE = os.path.join(
-    os.path.dirname(__file__), "cursors", "mouse_cursor_white_16x16.png"
+    os.path.dirname(__file__), "../cursors", "mouse_cursor_white_16x16.png"
 )
 
 # Mapping from JSON keyboard buttons to MineRL actions
@@ -291,6 +291,7 @@ class DataLoader:
         n_epochs=1,
         max_queue_size=8,
         dataset_max_size=-1,
+        shuffle=True
     ):
         """
 
@@ -309,6 +310,9 @@ class DataLoader:
         self.n_epochs = n_epochs
         self.batch_size = batch_size
         self.max_queue_size = max_queue_size
+
+        if shuffle is False:
+            logging.warning("Shuffle is set to false")
 
         unique_ids = glob.glob(os.path.join(dataset_dir, "*.mp4"))
         unique_ids = list(set([os.path.basename(x).split(".")[0] for x in unique_ids]))
@@ -329,7 +333,8 @@ class DataLoader:
         # each epoch
         self.demonstration_tuples = []
         for i in range(n_epochs):
-            random.shuffle(demonstration_tuples)
+            if shuffle:
+                random.shuffle(demonstration_tuples)
             self.demonstration_tuples += demonstration_tuples
 
         self.task_queue = Queue()

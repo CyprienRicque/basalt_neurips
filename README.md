@@ -82,3 +82,36 @@ Change `FindCave` to other tasks to run for different tasks.
 **Note:** This repository is *not* submittable as-is. You first need to train the models, add them to the git repository and then submit to AICrowd.
 
 To submit this baseline agent follow the [submission instructions](https://github.com/minerllabs/basalt_2022_competition_submission_template/), but use this repo instead of the starter kit repo.
+
+
+# TMP
+
+This code defines a PyTorch neural network model that appears to be designed for use in a reinforcement learning (RL) task. The model, called MinecraftPolicy, extends PyTorch's nn.Module class and contains several layers and submodules.
+
+The MinecraftPolicy class takes several parameters that determine the structure and behavior of the model, including the recurrence_type which specifies whether and how the model will use recurrence (e.g. LSTM), the n_recurrence_layers which specifies the number of consecutive LSTM layers to use if recurrence_type is set to "multi_layer_lstm" or "multi_masked_lstm", and the dense_init_norm_kwargs and init_norm_kwargs which specify the arguments for initializing and normalizing the model's layers.
+
+The model contains two submodules: ImgObsProcess and ImpalaCNN. The ImgObsProcess submodule takes an input image and applies the ImpalaCNN submodule to it, followed by a linear layer. The ImpalaCNN submodule appears to be a convolutional neural network (CNN) with a particular architecture and normalization methods.
+
+The MinecraftPolicy class also contains several layers and functions that implement various RL-related tasks such as an action head (make_action_head), a loss function (ScaledMSEHead), and a residual recurrent blocks layer (ResidualRecurrentBlocks).
+
+Overall, this code defines a PyTorch neural network model that appears to be designed for use in an RL task, specifically in the context of the game Minecraft.
+
+
+The MinecraftPolicy model is a PyTorch neural network that extends the nn.Module class. The model takes as input an image and produces as output a predicted value, policy, and action. The model consists of several layers and submodules, including an ImgObsProcess submodule, a recurrent layer, a value_head submodule, and a pi_head and action_head submodule pair.
+
+The ImgObsProcess submodule applies the ImpalaCNN submodule to the input image, followed by a linear layer. The ImpalaCNN submodule is a CNN with a particular architecture and normalization methods. The output of the ImgObsProcess submodule is then passed to the recurrent layer, which applies recurrence (e.g. LSTM) to the sequence of hidden states computed from the output of the ImgObsProcess submodule.
+
+The output of the recurrent layer is then passed to the value_head submodule, which is a linear layer with a single output. The output of the value_head is used in the calculation of the loss function. The output of the recurrent layer is also passed to the make_action_head function, which creates the pi_head and action_head submodule pair. The pi_head is a linear layer with one output for each possible action followed by a softmax function, while the action_head is a linear layer with one output for each possible action. The output of the pi_head is used to select the next action and update the model's parameters during training.
+
+Overall, the MinecraftPolicy model is a complex neural network with multiple layers and submodules that processes input images and produces predictions for the value, policy, and action in an RL task.
+
+
+The value_head refers to a specific part of the MinecraftPolicy model that outputs a value prediction. In RL, the value of a state is a measure of how good it is for the agent to be in that state, and the value head is a neural network layer or submodule that predicts the value of a given state. In this specific implementation, the value_head is a submodule of the MinecraftPolicy class that contains a linear layer with a single output. This layer takes as input the output of the recurrent layer, which is a sequence of hidden states computed by applying recurrence (e.g. LSTM) to the output of the ImgObsProcess submodule. The output of the value_head is then used in the calculation of the loss function, which is used to update the model's parameters during training.
+
+The action_head and pi_head refer to specific parts of the MinecraftPolicy model that output predictions for the next action and policy, respectively. In RL, the action is the choice that the agent makes at each timestep, and the policy is the function that determines the probability of choosing each possible action given a state. The action_head and pi_head are neural network layers or submodules that predict the next action and policy, respectively, given a state.
+
+In this specific implementation, the action_head and pi_head are submodules of the MinecraftPolicy class that are created by the make_action_head function. This function takes as input the output of the recurrent layer and returns two submodules: the action_head and pi_head. The action_head is a linear layer with one output for each possible action, and the pi_head is a linear layer with one output for each possible action followed by a softmax function, which outputs a probability distribution over the actions.
+
+The action_head and pi_head are different from the value_head in that they predict different quantities. The value_head predicts the value of a state, whereas the action_head and pi_head predict the next action and policy, respectively. These predictions are used in different ways during training: the value prediction is used in the calculation of the loss function, while the action and policy predictions are used to select the next action and update the model's parameters.
+
+Yes, you are correct. In this specific implementation, the pi_head is created using the make_action_head function, which means that the pi_head is actually the same as the action_head with an additional softmax function applied to its output. This means that the pi_head and action_head predict the same thing, but the pi_head outputs a probability distribution over the actions while the action_head outputs the raw predicted action values.

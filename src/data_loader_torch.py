@@ -9,6 +9,7 @@ from multiprocessing import Process, Queue, Event
 
 import numpy as np
 import cv2
+import torch
 
 from src.openai_vpt.agent import ACTION_TRANSFORMER_KWARGS, resize_image, AGENT_RESOLUTION
 from src.openai_vpt.lib.actions import ActionTransformer
@@ -403,3 +404,32 @@ class DataLoader:
         for process in self.processes:
             process.terminate()
             process.join()
+
+
+# class MinecraftDataset(torch.utils.data.Dataset):
+#     def __init__(self, data_dir, action_transformer):
+#         self.data_dir = data_dir
+#         self.action_transformer = action_transformer
+#
+#     def __len__(self):
+#         # Return the number of duos of files ('.mp4' and '.jsonl') in the data directory
+#         return len(os.listdir(self.data_dir))
+#
+#     def __getitem__(self, index):
+#         file = os.listdir(self.data_dir)[index]
+#         video_path = self.data_dir + "/" + file + ".mp4"
+#         actions_path = self.data_dir + "/" + file + ".jsonl"
+#         video = load_video(video_path)
+#         actions = load_actions(actions_path)
+#         new_video = []
+#         new_actions = []
+#         for action in actions:
+#             env_action = json_action_to_env_action(action)
+#             new_video.append(resize_image(video[i], AGENT_RESOLUTION))
+#             new_actions.append(env_action)
+#         action_tensor = self.action_transformer.transform(new_actions)
+#         return new_video, action_tensor
+#
+# action_transformer = ActionTransformer(**ACTION_TRANSFORMER_KWARGS)
+# dataset = MinecraftDataset(data_dir, action_transformer)
+# dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, num_workers=num_workers)

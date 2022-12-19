@@ -28,4 +28,4 @@ COPY environment.yml environment.yml
 RUN conda env update --name minerl -f environment.yml --prune
 
 # Copy the files
-COPY --chown=1001:1001 . /home/aicrowd
+COPY --chown=1001:1001 basalt-2022-behavioural-cloning-baseline /home/aicrowd

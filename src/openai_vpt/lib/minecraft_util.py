@@ -2,11 +2,10 @@ import functools
 import inspect
 from typing import Optional, Tuple
 
-import numpy as np
 import torch
 
-from openai_vpt.lib.action_head import (CategoricalActionHead, DiagGaussianActionHead,
-                             DictActionHead)
+from src.openai_vpt.lib.action_head import (CategoricalActionHead, DiagGaussianActionHead,
+                                            DictActionHead)
 
 
 def store_args(method):
