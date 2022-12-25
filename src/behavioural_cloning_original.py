@@ -13,19 +13,17 @@ import torch
 import numpy as np
 from tqdm import tqdm
 
-from src.agent import MineRLAgent
-from src.data_loader import DataLoader
+from src.original_agent import MineRLAgent
+from src.data_loader_original import DataLoader
 from src.lib.tree_util import tree_map
 
 import logging
 
-LEVEL = logging.INFO
-
-
+# Create a logger
 logger = logging.getLogger(__name__)
-logger.setLevel(LEVEL)
+logger.setLevel(logging.DEBUG)
 console_handler = logging.StreamHandler()
-console_handler.setLevel(LEVEL)
+console_handler.setLevel(logging.DEBUG)
 formatter = logging.Formatter("[%(levelname)s] %(name)s: %(message)s")
 console_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
@@ -78,6 +76,7 @@ def behavioural_cloning_train(
     :param environment: environment to train on. All basalt environments have the same settings, so any of them works here
     :return: None
     """
+    logger.info("ORIGINAL BC Train")
     agent_policy_kwargs, agent_pi_head_kwargs = load_model_parameters(in_model)
 
     env = gym.make(environment)
@@ -110,9 +109,6 @@ def behavioural_cloning_train(
     for param in policy.net.lastlayer.parameters():
         param.requires_grad = True
         trainable_parameters.append(param)
-    for param in policy.net.add_subtasks.parameters():
-        param.requires_grad = True
-        trainable_parameters.append(param)
     for param in policy.pi_head.parameters():
         param.requires_grad = True
         trainable_parameters.append(param)
@@ -141,10 +137,10 @@ def behavioural_cloning_train(
 
     loss_sum = 0
     pbar = tqdm(enumerate(data_loader), total=len(data_loader), desc=f"Avg loss: {loss_sum / LOSS_REPORT_RATE:.4f}")
-    for batch_i, (batch_images, batch_actions, batch_subtasks, batch_episode_id) in pbar:
+    for batch_i, (batch_images, batch_actions, batch_episode_id) in pbar:
         batch_loss = 0
-        for image, action, subtasks, episode_id in zip(
-            batch_images, batch_actions, batch_subtasks, batch_episode_id
+        for image, action, episode_id in zip(
+            batch_images, batch_actions, batch_episode_id
         ):
             if image is None and action is None:
                 # A work-item was done. Remove hidden state
@@ -160,10 +156,7 @@ def behavioural_cloning_train(
                 # Action was null
                 continue
 
-            subtasks_labels = agent.label_to_subtasks(subtasks, to_torch=True)
-
-            agent_obs = agent._env_obs_to_agent({"pov": image, "subtasks": subtasks_labels})
-
+            agent_obs = agent._env_obs_to_agent({"pov": image})
             if episode_id not in episode_hidden_states:
                 episode_hidden_states[episode_id] = policy.initial_state(1)
             agent_state = episode_hidden_states[episode_id]

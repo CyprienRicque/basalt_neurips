@@ -4,8 +4,8 @@ from typing import Optional, Tuple
 
 import torch
 
-from src.openai_vpt.lib.action_head import (CategoricalActionHead, DiagGaussianActionHead,
-                                            DictActionHead)
+from src.lib.action_head import (CategoricalActionHead, DiagGaussianActionHead,
+                                 DictActionHead)
 
 
 def store_args(method):

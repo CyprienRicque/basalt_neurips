@@ -1,13 +1,28 @@
+import logging
+
 import numpy as np
 import torch as th
 import cv2
 from gym3.types import DictType
 from gym import spaces
 
-from src.openai_vpt.lib.action_mapping import CameraHierarchicalMapping
-from src.openai_vpt.lib.actions import ActionTransformer
-from src.openai_vpt.lib.policy import MinecraftAgentPolicy
-from src.openai_vpt.lib.torch_util import default_device_type, set_default_torch_device
+from src.lib.action_mapping import CameraHierarchicalMapping
+from src.lib.actions import ActionTransformer
+from src.lib.policy import MinecraftAgentPolicy
+from src.lib.torch_util import default_device_type, set_default_torch_device
+
+import logging
+
+
+LEVEL = logging.INFO
+
+logger = logging.getLogger(__name__)
+logger.setLevel(LEVEL)
+console_handler = logging.StreamHandler()
+console_handler.setLevel(LEVEL)
+formatter = logging.Formatter("[%(levelname)s] %(name)s: %(message)s")
+console_handler.setFormatter(formatter)
+logger.addHandler(console_handler)
 
 
 # Hardcoded settings
@@ -108,7 +123,7 @@ class MineRLAgent:
         agent_kwargs = dict(policy_kwargs=policy_kwargs, pi_head_kwargs=pi_head_kwargs, action_space=action_space)
 
         self.policy = MinecraftAgentPolicy(**agent_kwargs).to(device)
-        print(f"{self.policy=}")
+        # print(f"{self.policy=}")
         self.hidden_state = self.policy.initial_state(1)
         self._dummy_first = th.from_numpy(np.array((False,))).to(device)
 
@@ -128,7 +143,10 @@ class MineRLAgent:
         Returns torch tensors.
         """
         agent_input = resize_image(minerl_obs["pov"], AGENT_RESOLUTION)[None]
-        agent_input = {"img": th.from_numpy(agent_input).to(self.device)}
+        agent_input = {
+            "img": th.from_numpy(agent_input).to(self.device),
+            "subtasks": minerl_obs["subtasks"] if "subtasks" in minerl_obs else th.tensor([1]).to(self.device)
+        }
         return agent_input
 
     def _agent_action_to_env(self, agent_action):
@@ -189,3 +207,14 @@ class MineRLAgent:
         )
         minerl_action = self._agent_action_to_env(agent_action)
         return minerl_action
+
+    def label_to_subtasks(self, label, to_torch=True):
+        # Add batch dims if not existent
+        if label["one_hot"].shape.__len__() == 1:
+            label["one_hot"] = label["one_hot"][None]
+
+        subtasks = label["one_hot"].astype(np.uint8)
+        if to_torch:
+            subtasks = th.from_numpy(subtasks).to(self.device)
+
+        return subtasks

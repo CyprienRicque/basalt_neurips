@@ -9,10 +9,21 @@ from multiprocessing import Process, Queue, Event
 
 import numpy as np
 import cv2
-import torch
 
-from src.openai_vpt.agent import ACTION_TRANSFORMER_KWARGS, resize_image, AGENT_RESOLUTION
-from src.openai_vpt.lib.actions import ActionTransformer
+from src.original_agent import resize_image, AGENT_RESOLUTION
+
+
+import logging
+
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.DEBUG)
+formatter = logging.Formatter("[%(levelname)s] %(name)s: %(message)s")
+console_handler.setFormatter(formatter)
+logger.addHandler(console_handler)
+
 
 QUEUE_TIMEOUT = 10
 
@@ -292,6 +303,7 @@ class DataLoader:
         n_epochs=1,
         max_queue_size=8,
         dataset_max_size=-1,
+        shuffle=True
     ):
         """
 
@@ -311,6 +323,9 @@ class DataLoader:
         self.batch_size = batch_size
         self.max_queue_size = max_queue_size
 
+        if shuffle is False:
+            logging.warning("Shuffle is set to false")
+
         unique_ids = glob.glob(os.path.join(dataset_dir, "*.mp4"))
         unique_ids = list(set([os.path.basename(x).split(".")[0] for x in unique_ids]))
         self.unique_ids = unique_ids[:dataset_max_size]
@@ -326,11 +341,11 @@ class DataLoader:
             demonstration_tuples
         ), f"n_workers should be lower or equal than number of demonstrations {len(demonstration_tuples)}"
 
-        # Repeat dataset for n_epochs times, shuffling the order of files for
-        # each epoch
+        # Repeat dataset for n_epochs times, shuffling the order of files for each epoch
         self.demonstration_tuples = []
         for i in range(n_epochs):
-            random.shuffle(demonstration_tuples)
+            if shuffle:
+                random.shuffle(demonstration_tuples)
             self.demonstration_tuples += demonstration_tuples
 
         self.task_queue = Queue()
@@ -404,32 +419,3 @@ class DataLoader:
         for process in self.processes:
             process.terminate()
             process.join()
-
-
-# class MinecraftDataset(torch.utils.data.Dataset):
-#     def __init__(self, data_dir, action_transformer):
-#         self.data_dir = data_dir
-#         self.action_transformer = action_transformer
-#
-#     def __len__(self):
-#         # Return the number of duos of files ('.mp4' and '.jsonl') in the data directory
-#         return len(os.listdir(self.data_dir))
-#
-#     def __getitem__(self, index):
-#         file = os.listdir(self.data_dir)[index]
-#         video_path = self.data_dir + "/" + file + ".mp4"
-#         actions_path = self.data_dir + "/" + file + ".jsonl"
-#         video = load_video(video_path)
-#         actions = load_actions(actions_path)
-#         new_video = []
-#         new_actions = []
-#         for action in actions:
-#             env_action = json_action_to_env_action(action)
-#             new_video.append(resize_image(video[i], AGENT_RESOLUTION))
-#             new_actions.append(env_action)
-#         action_tensor = self.action_transformer.transform(new_actions)
-#         return new_video, action_tensor
-#
-# action_transformer = ActionTransformer(**ACTION_TRANSFORMER_KWARGS)
-# dataset = MinecraftDataset(data_dir, action_transformer)
-# dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, num_workers=num_workers)

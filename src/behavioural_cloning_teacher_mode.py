@@ -14,6 +14,7 @@ import numpy as np
 from tqdm import tqdm
 
 from src.agent import MineRLAgent
+from src.original_agent import MineRLAgent as MineRLAgent_original
 from src.data_loader import DataLoader
 from src.lib.tree_util import tree_map
 
@@ -34,14 +35,13 @@ logger.addHandler(console_handler)
 # The settings might not be the best for the full BASALT dataset (thousands of demonstrations).
 # Use this flag to switch between the two settings
 
-EPOCHS = 5
+EPOCHS = 1
 # Needs to be <= number of videos
-BATCH_SIZE = 8
-# Ideally more than batch size to create
-# variation in datasets (otherwise, you will
-# get a bunch of consecutive samples)
+BATCH_SIZE = 6
+# Ideally more than batch size to create variation in datasets
+# (otherwise, you will # get a bunch of consecutive samples)
 # Decrease this (and batch_size) if you run out of memory
-N_WORKERS = 8
+N_WORKERS = 10
 DEVICE = "cuda"
 
 LOSS_REPORT_RATE = 100
@@ -66,11 +66,13 @@ def load_model_parameters(path_to_model_file):
     return policy_kwargs, pi_head_kwargs
 
 
-def behavioural_cloning_train(
-    data_dir, in_model, in_weights, out_weights, environment="MineRLBasaltFindCave-v0"
+def behavioural_cloning_train_teacher(
+    data_dir, in_model_original, in_model, in_weights_original, in_weights, out_weights, environment="MineRLBasaltFindCave-v0"
 ) -> None:
     """
     Fine-tune openai VPT on a dataset using behavioural cloning.
+    :param in_weights_original:
+    :param in_model_original:
     :param data_dir: directory containing the dataset
     :param in_model: model configuration file
     :param in_weights: model weights file
@@ -79,8 +81,11 @@ def behavioural_cloning_train(
     :return: None
     """
     agent_policy_kwargs, agent_pi_head_kwargs = load_model_parameters(in_model)
+    agent_policy_kwargs_original, agent_pi_head_kwargs_original = load_model_parameters(in_model_original)
 
-    env = gym.make(environment)
+    # env = gym.make(environment)
+    env = None
+
     agent = MineRLAgent(
         env,
         device=DEVICE,
@@ -90,14 +95,14 @@ def behavioural_cloning_train(
     agent.load_weights(in_weights)
 
     # Create a copy which will have the original parameters
-    original_agent = MineRLAgent(
+    original_agent = MineRLAgent_original(
         env,
         device=DEVICE,
-        policy_kwargs=agent_policy_kwargs,
-        pi_head_kwargs=agent_pi_head_kwargs,
+        policy_kwargs=agent_policy_kwargs_original,
+        pi_head_kwargs=agent_pi_head_kwargs_original,
     )
-    original_agent.load_weights(in_weights)
-    env.close()
+    original_agent.load_weights(in_weights_original)
+    # env.close()
 
     policy = agent.policy
     original_policy = original_agent.policy
@@ -127,7 +132,7 @@ def behavioural_cloning_train(
         n_workers=N_WORKERS,
         batch_size=BATCH_SIZE,
         n_epochs=EPOCHS,
-        dataset_max_size=10
+        dataset_max_size=400
     )
 
     start_time = time.time()
@@ -153,16 +158,17 @@ def behavioural_cloning_train(
                     del removed_hidden_state
                 continue
 
+            #print(action)
             agent_action = agent._env_action_to_agent(
                 action, to_torch=True, check_if_null=True
             )
             if agent_action is None:
-                # Action was null
                 continue
 
             subtasks_labels = agent.label_to_subtasks(subtasks, to_torch=True)
 
             agent_obs = agent._env_obs_to_agent({"pov": image, "subtasks": subtasks_labels})
+            agent_obs_for_original = agent._env_obs_to_agent({"pov": image})
 
             if episode_id not in episode_hidden_states:
                 episode_hidden_states[episode_id] = policy.initial_state(1)
@@ -174,7 +180,7 @@ def behavioural_cloning_train(
 
             with torch.no_grad():
                 original_pi_distribution, _, _ = original_policy.get_output_for_observation(
-                    agent_obs, agent_state, dummy_first
+                    agent_obs_for_original, agent_state, dummy_first
                 )
 
             log_prob = policy.get_logprob_of_action(pi_distribution, agent_action)
@@ -200,13 +206,17 @@ def behavioural_cloning_train(
 
         loss_sum += batch_loss
         if batch_i % LOSS_REPORT_RATE == 0:
-            time_since_start = time.time() - start_time
+            # time_since_start = time.time() - start_time
             # print(
             #     f"Time: {time_since_start:.2f}, Batches: {batch_i}, Avrg loss: {loss_sum / LOSS_REPORT_RATE:.4f}"
             # )
             print("\n", end="")
             pbar.set_description(refresh=True, desc=f"Avg loss: {loss_sum / LOSS_REPORT_RATE:.4f}")
             loss_sum = 0
+
+        if batch_i % 1000 == 0:
+            state_dict = policy.state_dict()
+            torch.save(state_dict, out_weights)
 
         # if batch_i > MAX_BATCHES:
         #     break
@@ -216,33 +226,13 @@ def behavioural_cloning_train(
 
 
 if __name__ == "__main__":
-    parser = ArgumentParser()
-    parser.add_argument(
-        "--data-dir",
-        type=str,
-        required=True,
-        help="Path to the directory containing recordings to be trained on",
-    )
-    parser.add_argument(
-        "--in-model",
-        required=True,
-        type=str,
-        help="Path to the .model file to be finetuned",
-    )
-    parser.add_argument(
-        "--in-weights",
-        required=True,
-        type=str,
-        help="Path to the .weights file to be finetuned",
-    )
-    parser.add_argument(
-        "--out-weights",
-        required=True,
-        type=str,
-        help="Path where finetuned weights will be saved",
-    )
 
-    args = parser.parse_args()
-    behavioural_cloning_train(
-        args.data_dir, args.in_model, args.in_weights, args.out_weights
+    behavioural_cloning_train_teacher(
+        data_dir="../basalt_neurips_data/MineRLBasaltMakeWaterfall-v0/",
+        in_model_original="./data/VPT-models/2x.model",
+        in_model="./data/VPT-models/2x.model",
+        in_weights_original="./data/VPT-models/foundation-model-2x.weights",
+        in_weights="./data/agent_st/foundation-model-tl-tt-2x.weights",
+        out_weights="./data/agent_st/foundation-model-tl-bct-2x.weights_TMP",
+        environment="MineRLBasaltFindCave-v0"
     )

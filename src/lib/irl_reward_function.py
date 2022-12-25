@@ -6,11 +6,23 @@ import torch as th
 from torch import nn
 from torch.nn import functional as F
 
-from src.openai_vpt.lib.action_head import make_action_head
-from src.openai_vpt.lib.impala_cnn import ImpalaCNN
-from src.openai_vpt.lib.scaled_mse_head import ScaledMSEHead
-from src.openai_vpt.lib.tree_util import tree_map
-from src.openai_vpt.lib.util import FanInInitReLULayer, ResidualRecurrentBlocks
+from src.lib.action_head import make_action_head
+from src.lib.impala_cnn import ImpalaCNN
+from src.lib.scaled_mse_head import ScaledMSEHead
+from src.lib.tree_util import tree_map
+from src.lib.util import FanInInitReLULayer, ResidualRecurrentBlocks, ImplementSubTasks, ImplementActions
+
+import logging
+
+LEVEL = logging.INFO
+
+logger = logging.getLogger(__name__)
+logger.setLevel(LEVEL)
+console_handler = logging.StreamHandler()
+console_handler.setLevel(LEVEL)
+formatter = logging.Formatter("[%(levelname)s] %(name)s: %(message)s")
+console_handler.setFormatter(formatter)
+logger.addHandler(console_handler)
 
 
 class ImgPreprocessing(nn.Module):
@@ -50,12 +62,12 @@ class ImgObsProcess(nn.Module):
     """
 
     def __init__(
-        self,
-        cnn_outsize: int,
-        output_size: int,
-        dense_init_norm_kwargs: Dict = {},
-        init_norm_kwargs: Dict = {},
-        **kwargs,
+            self,
+            cnn_outsize: int,
+            output_size: int,
+            dense_init_norm_kwargs: Dict = {},
+            init_norm_kwargs: Dict = {},
+            **kwargs,
     ):
         super().__init__()
         self.cnn = ImpalaCNN(
@@ -75,7 +87,7 @@ class ImgObsProcess(nn.Module):
         return self.linear(self.cnn(img))
 
 
-class MinecraftPolicy(nn.Module):
+class ILRRewardFunction(nn.Module):
     """
     :param recurrence_type:
         None                - No recurrence, adds no extra layers
@@ -89,35 +101,38 @@ class MinecraftPolicy(nn.Module):
     """
 
     def __init__(
-        self,
-        recurrence_type="lstm",
-        impala_width=1,
-        impala_chans=(16, 32, 32),
-        obs_processing_width=256,
-        hidsize=512,
-        single_output=False,  # True if we don't need separate outputs for action/value outputs
-        img_shape=None,
-        scale_input_img=True,
-        only_img_input=False,
-        init_norm_kwargs={},
-        impala_kwargs={},
-        # Unused argument assumed by forc.
-        input_shape=None,  # pylint: disable=unused-argument
-        active_reward_monitors=None,
-        img_statistics=None,
-        first_conv_norm=False,
-        diff_mlp_embedding=False,
-        attention_mask_style="clipped_causal",
-        attention_heads=8,
-        attention_memory_size=2048,
-        use_pointwise_layer=True,
-        pointwise_ratio=4,
-        pointwise_use_activation=False,
-        n_recurrence_layers=1,
-        recurrence_is_residual=True,
-        timesteps=None,
-        use_pre_lstm_ln=True,  # Not needed for transformer
-        **unused_kwargs,
+            self,
+            recurrence_type="lstm",
+            impala_width=1,
+            impala_chans=(16, 32, 32),
+            obs_processing_width=256,
+            hidsize=512,
+            subtasks_size=30,
+            buttons_size=8641,
+            camera_size=121,
+            single_output=False,  # True if we don't need separate outputs for action/value outputs
+            img_shape=None,
+            scale_input_img=True,
+            only_img_input=False,
+            init_norm_kwargs={},
+            impala_kwargs={},
+            # Unused argument assumed by forc.
+            input_shape=None,  # pylint: disable=unused-argument
+            active_reward_monitors=None,
+            img_statistics=None,
+            first_conv_norm=False,
+            diff_mlp_embedding=False,
+            attention_mask_style="clipped_causal",
+            attention_heads=8,
+            attention_memory_size=2048,
+            use_pointwise_layer=True,
+            pointwise_ratio=4,
+            pointwise_use_activation=False,
+            n_recurrence_layers=1,
+            recurrence_is_residual=True,
+            timesteps=None,
+            use_pre_lstm_ln=True,  # Not needed for transformer
+            **unused_kwargs,
     ):
         super().__init__()
         assert recurrence_type in [
@@ -159,6 +174,20 @@ class MinecraftPolicy(nn.Module):
             **impala_kwargs,
         )
 
+        hidsize_buttons = 64
+        hidsize_camera = 16
+
+        self.add_subtasks = ImplementActions(inchan=hidsize,
+        inchan_buttons=buttons_size,
+        inchan_camera=camera_size,
+        outchan=hidsize,
+        hidsize_buttons=hidsize_buttons,
+        hidsize_camera=hidsize_buttons,
+        hidsize_concat=hidsize_buttons + hidsize_camera + hidsize,
+        n_layers_actions=2,
+        n_layers_concat=2,
+        **self.dense_init_norm_kwargs)
+
         self.pre_lstm_ln = nn.LayerNorm(hidsize) if use_pre_lstm_ln else None
         self.diff_obs_process = None
 
@@ -179,6 +208,12 @@ class MinecraftPolicy(nn.Module):
             n_block=n_recurrence_layers,
         )
 
+        # # [DEBUG] src.lib.policy: self.dense_init_norm_kwargs={'batch_norm': False, 'layer_norm': True}
+        # logger.debug(f"{self.dense_init_norm_kwargs=}")
+        # raise NotImplementedError("check what to do with dense_init_norm_kwargs")
+
+        self.add_subtasks = ImplementSubTasks(inchan=hidsize + subtasks_size, outchan=hidsize, hidsize=hidsize,
+                                              **self.dense_init_norm_kwargs)
         self.lastlayer = FanInInitReLULayer(hidsize, hidsize, layer_type="linear", **self.dense_init_norm_kwargs)
         self.final_ln = th.nn.LayerNorm(hidsize)
 
@@ -205,6 +240,8 @@ class MinecraftPolicy(nn.Module):
 
         x = F.relu(x, inplace=False)
 
+        x = self.add_subtasks(th.cat((x, ob["subtasks"]), dim=2))
+
         x = self.lastlayer(x)
         x = self.final_ln(x)
         pi_latent = vf_latent = x
@@ -219,10 +256,12 @@ class MinecraftPolicy(nn.Module):
             return None
 
 
-class MinecraftAgentPolicy(nn.Module):
+class MinecraftIRLRewardFunction(nn.Module):
     def __init__(self, action_space, policy_kwargs, pi_head_kwargs):
         super().__init__()
-        self.net = MinecraftPolicy(**policy_kwargs)
+
+        print(f"{policy_kwargs=}")
+        self.net = ILRRewardFunction(**policy_kwargs)
 
         self.action_space = action_space
 
@@ -292,7 +331,7 @@ class MinecraftAgentPolicy(nn.Module):
           - new state
         """
         # We need to add a fictitious time dimension everywhere
-        obs = tree_map(lambda x: x.unsqueeze(1), obs)
+        obs = tree_map(lambda x: x.unsqueeze(1), obs)  # TODO check it works with subtasks
         first = first.unsqueeze(1)
 
         (pd, vpred, _), state_out = self(obs=obs, first=first, state_in=state_in)

@@ -4,10 +4,10 @@ import torch as th
 from torch import nn
 from torch.nn import functional as F
 
-import src.openai_vpt.lib.torch_util as tu
-from src.openai_vpt.lib.masked_attention import MaskedAttention
-from src.openai_vpt.lib.minecraft_util import store_args
-from src.openai_vpt.lib.tree_util import tree_map
+import src.lib.torch_util as tu
+from src.lib.masked_attention import MaskedAttention
+from src.lib.minecraft_util import store_args
+from src.lib.tree_util import tree_map
 
 
 def get_module_log_keys_recursive(m: nn.Module):
@@ -18,6 +18,198 @@ def get_module_log_keys_recursive(m: nn.Module):
     for c in m.children():
         keys += get_module_log_keys_recursive(c)
     return keys
+
+
+class ImplementSubTasks(nn.Module):
+    """Basic FCNN contatenatinng new inputs
+    :param inchan: number of input channels
+    :param outchan: number of output channels
+    :param layer_args: positional layer args
+    :param layer_type: options are "linear" (dense layer), "conv" (2D Convolution), "conv3d" (3D convolution)
+    :param init_scale: multiplier on initial weights
+    :param batch_norm: use batch norm after the layer (for 2D data)
+    :param group_norm_groups: if not None, use group norm with this many groups after the layer. Group norm 1
+        would be equivalent of layernorm for 2D data.
+    :param layer_norm: use layernorm after the layer (for 1D data)
+    :param layer_kwargs: keyword arguments for the layer
+    """
+
+    @store_args
+    def __init__(
+        self,
+        inchan: int,
+        outchan: int,
+        hidsize: int,
+        n_layers: int = 2,
+        *layer_args,
+        init_scale: int = 1,
+        batch_norm: bool = False,
+        batch_norm_kwargs: Dict = {},
+        group_norm_groups: Optional[int] = None,
+        layer_norm: bool = False,
+        use_activation=True,
+        log_scope: Optional[str] = None,
+        **layer_kwargs,
+    ):
+        super().__init__()
+
+        # Normalization
+        self.norm = None
+        if batch_norm:
+            self.norm = nn.BatchNorm2d(inchan, **batch_norm_kwargs)
+        elif group_norm_groups is not None:
+            self.norm = nn.GroupNorm(group_norm_groups, inchan)
+        elif layer_norm:
+            self.norm = nn.LayerNorm(inchan)
+
+        layer = nn.Linear
+        self.layers = nn.ModuleList(
+            [
+                layer(inchan if i == 0 else hidsize, outchan if i == (n_layers - 1) else hidsize,
+                      bias=self.norm is None, *layer_args, **layer_kwargs)
+                for i in range(n_layers)
+            ]
+        )
+
+        # Init Weights (Fan-In)
+        for layer in self.layers:
+            layer.weight.data *= init_scale / layer.weight.norm(
+                dim=tuple(range(1, layer.weight.data.ndim)), p=2, keepdim=True
+            )
+            # Init Bias
+            if layer.bias is not None:
+                layer.bias.data *= 0
+
+    def forward(self, x):
+        """Norm after the activation. Experimented with this for both IAM and BC and it was slightly better."""
+        if self.norm is not None:
+            x = self.norm(x)
+        for layer in self.layers:
+            x = layer(x)
+            if self.use_activation:
+                x = F.relu(x, inplace=True)
+            else:
+                raise ValueError("FIXME Not using relu activation")
+        return x
+
+    def get_log_keys(self):
+        return [
+            f"activation_mean/{self.log_scope}",
+            f"activation_std/{self.log_scope}",
+        ]
+
+
+class ImplementActions(nn.Module):
+    """Basic FCNN contatenatinng new inputs
+    :param inchan: number of input channels
+    :param outchan: number of output channels
+    :param layer_args: positional layer args
+    :param layer_type: options are "linear" (dense layer), "conv" (2D Convolution), "conv3d" (3D convolution)
+    :param init_scale: multiplier on initial weights
+    :param batch_norm: use batch norm after the layer (for 2D data)
+    :param group_norm_groups: if not None, use group norm with this many groups after the layer. Group norm 1
+        would be equivalent of layernorm for 2D data.
+    :param layer_norm: use layernorm after the layer (for 1D data)
+    :param layer_kwargs: keyword arguments for the layer
+    """
+
+    @store_args
+    def __init__(
+        self,
+        inchan: int,
+        inchan_buttons: int,
+        inchan_camera: int,
+        outchan: int,
+        hidsize_buttons: int,
+        hidsize_camera: int,
+        hidsize_concat: int,
+        n_layers_actions: int = 2,
+        n_layers_concat: int = 2,
+        *layer_args,
+        init_scale: int = 1,
+        batch_norm: bool = False,
+        batch_norm_kwargs: Dict = {},
+        group_norm_groups: Optional[int] = None,
+        layer_norm: bool = False,
+        use_activation=True,
+        log_scope: Optional[str] = None,
+        **layer_kwargs,
+    ):
+        super().__init__()
+
+        # Normalization
+        self.norm = None
+        if batch_norm:
+            self.norm = nn.BatchNorm2d(inchan, **batch_norm_kwargs)
+        elif group_norm_groups is not None:
+            self.norm = nn.GroupNorm(group_norm_groups, inchan)
+        elif layer_norm:
+            self.norm = nn.LayerNorm(inchan)
+
+        layer = nn.Linear
+        self.layers_buttons = nn.ModuleList(
+            [
+                layer(in_features=inchan_buttons if i == 0 else hidsize_buttons,
+                      out_features=hidsize_buttons if i == (n_layers_actions - 1) else hidsize_buttons,
+                      bias=self.norm is None, *layer_args, **layer_kwargs)
+                for i in range(n_layers_actions)
+            ]
+        )
+        self.layers_camera = nn.ModuleList(
+            [
+                layer(in_features=inchan_camera if i == 0 else hidsize_camera,
+                      out_features=hidsize_camera if i == (n_layers_actions - 1) else hidsize_camera,
+                      bias=self.norm is None, *layer_args, **layer_kwargs)
+                for i in range(n_layers_actions)
+            ]
+        )
+        self.layers_concat = nn.ModuleList(
+            [
+                layer(in_features=inchan + hidsize_buttons + hidsize_camera if i == 0 else hidsize_concat,
+                      out_features=outchan if i == (n_layers_concat - 1) else hidsize_concat,
+                      bias=self.norm is None, *layer_args, **layer_kwargs)
+                for i in range(n_layers_concat)
+            ]
+        )
+
+        # Init Weights (Fan-In)
+        for layers in (self.layers_buttons, self.layers_camera, self.layers_concat):
+            for layer in layers:
+                layer.weight.data *= init_scale / layer.weight.norm(
+                    dim=tuple(range(1, layer.weight.data.ndim)), p=2, keepdim=True
+                )
+                # Init Bias
+                if layer.bias is not None:
+                    layer.bias.data *= 0
+
+    def forward(self, x, buttons, camera):
+        for layer in self.layers_buttons:
+            buttons = layer(buttons)
+            if self.use_activation:
+                buttons = F.relu(x, inplace=True)
+
+        for layer in self.layers_camera:
+            camera = layer(camera)
+            if self.use_activation:
+                camera = F.relu(x, inplace=True)
+
+        if self.norm is not None:
+            buttons = self.norm(buttons)
+            camera = self.norm(camera)
+            x = self.norm(x)
+
+        for layer in self.layers_concat:
+            x = layer(th.cat((x, buttons, camera), dim=2))
+            if self.use_activation:
+                x = F.relu(x, inplace=True)
+
+        return x
+
+    def get_log_keys(self):
+        return [
+            f"activation_mean/{self.log_scope}",
+            f"activation_std/{self.log_scope}",
+        ]
 
 
 class FanInInitReLULayer(nn.Module):

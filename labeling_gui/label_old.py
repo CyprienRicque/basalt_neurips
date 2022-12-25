@@ -126,7 +126,7 @@ preview_var = tk.StringVar()
 preview_label.config(textvariable=preview_var)
 
 # Initialize the video capture and get the video's duration
-video_capture = cv2.VideoCapture("../basalt_neurips_data/BuildWaterFall/woozy-ruby-ostrich-ff3ddf992ab4-20220721-125851.mp4")
+video_capture = cv2.VideoCapture("../basalt_neurips_data/MineRLBasaltMakeWaterfall-v0/woozy-ruby-ostrich-ff3ddf992ab4-20220721-125851.mp4")
 duration = int(video_capture.get(cv2.CAP_PROP_FRAME_COUNT))
 
 # Set the timeline scale's maximum value to the video's duration

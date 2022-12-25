@@ -2,8 +2,13 @@ import datetime
 import logging
 import os
 import statistics
-
+import time
+import sys
 from tqdm import tqdm
+
+sys.path.append('./')
+
+from labeling_gui.label import run_labeler
 
 # CLI for dataset management
 
@@ -34,6 +39,8 @@ python cli.py rm-invalid-duos
 import argparse
 import json
 import os
+import sys
+sys.path.append("./")
 
 from utils.download_dataset import download_dataset
 from utils.invalid_files import list_invalid_videos, remove_duo_when_one_is_invalid, list_invalid_actions
@@ -47,6 +54,8 @@ list_invalid_videos_parser = subparsers.add_parser("list-invalid-videos")
 list_invalid_actions_parser = subparsers.add_parser("list-invalid-actions")
 rm_invalid_duos_parser = subparsers.add_parser("rm-invalid-duos")
 total_duration_parser = subparsers.add_parser("total-duration")
+delete_annotations_parser = subparsers.add_parser("delete-annotations")
+annotate_parser = subparsers.add_parser("annotate")
 
 # Add arguments for the "download-dataset" functionality
 download_parser.add_argument("--json-file", type=str, required=True, help="Path to the JSON file containing the dataset information")
@@ -69,6 +78,16 @@ rm_invalid_duos_parser.add_argument("--verbose", type=int, default=1, help="Show
 # Add arguments for the "total-duration" functionality
 total_duration_parser.add_argument("--directory", type=str, required=True, help="Directory containing the files")
 total_duration_parser.add_argument("--verbose", type=int, default=1, help="Show verbose output")
+
+# Add arguments for the "total-duration" functionality
+delete_annotations_parser.add_argument("--directory", type=str, required=True, help="Directory containing the files")
+delete_annotations_parser.add_argument("--verbose", type=int, default=1, help="Show verbose output")
+delete_annotations_parser.add_argument("--minutes", type=int, default=-1, help="How recent are the files to be deleted in minutes")
+
+# Add arguments for the "total-duration" functionality
+annotate_parser.add_argument("--directory", type=str, required=True, help="Directory containing the files")
+annotate_parser.add_argument("--verbose", type=int, default=1, help="Show verbose output")
+
 
 # Parse the command line arguments
 args = parser.parse_args()
@@ -124,3 +143,36 @@ if args.functionality == "total-duration":
     print(f"Median duration: {str(datetime.timedelta(seconds=median_duration)).split('.')[0]}")
     print(f"Total duration: {str(datetime.timedelta(seconds=total_duration)).split('.')[0]}")
 
+
+def delete_recent_annotations(folder, nb_minutes):
+    if nb_minutes == 0:
+        raise ValueError("nb_minutes cannot be 0")
+
+    # Get the current time in seconds
+    current_time = time.time()
+
+    # Iterate through all files in the folder
+    for file in os.listdir(folder):
+        # Check if the file ends with _annotations.jsonl
+        if file.endswith("_annotations.jsonl"):
+            # Get the file's creation time in seconds
+            file_creation_time = os.path.getctime(os.path.join(folder, file))
+
+            # Calculate the difference between the current time and the file's creation time
+            time_difference = current_time - file_creation_time
+
+            # Convert the difference to minutes
+            time_difference_in_minutes = time_difference / 60
+
+            # Check if the difference is greater than the specified number of minutes
+            if nb_minutes == -1 or time_difference_in_minutes < nb_minutes:
+                # Delete the file
+                os.remove(os.path.join(folder, file))
+
+
+if args.functionality == "delete-annotations":
+    delete_recent_annotations(f"{args.directory}/", int(args.minutes))
+
+
+if args.functionality == "annotate":
+    run_labeler(f"{args.directory}/")

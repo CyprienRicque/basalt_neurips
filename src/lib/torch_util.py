@@ -4,7 +4,7 @@ import torch as th
 import torch.nn.functional as F
 from torch import nn
 
-from src.openai_vpt.lib import misc
+from src.lib import misc
 
 
 def contextmanager_to_decorator(cm):

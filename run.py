@@ -6,7 +6,7 @@ import train
 import run_BuildVillageHouse
 import run_CreateVillageAnimalPen
 import run_FindCave
-import test_MakeWaterfall
+import run_MakeWaterfall
 
 import os
 

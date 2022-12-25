@@ -2,7 +2,16 @@ import logging
 import gym
 import minerl
 
-logging.basicConfig(level=logging.DEBUG)
+import logging
+
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.DEBUG)
+formatter = logging.Formatter("[%(levelname)s] %(name)s: %(message)s")
+console_handler.setFormatter(formatter)
+logger.addHandler(console_handler)
 
 """
 Now we can choose any one of the many environments included in the minerl package. 

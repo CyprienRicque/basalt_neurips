@@ -1,8 +1,8 @@
 import torch as th
 from torch import nn
 
-from src.openai_vpt.lib import misc
-from src.openai_vpt.lib import torch_util as tu
+from src.lib import misc
+from src.lib import torch_util as tu
 
 
 class MLP(nn.Module):

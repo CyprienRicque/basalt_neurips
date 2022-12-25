@@ -4,26 +4,20 @@ import pickle
 
 import aicrowd_gym
 
-from src.openai_vpt.agent import MineRLAgent
+from src.original_agent import MineRLAgent
 
 
 def main(model, weights, env, n_episodes=3, max_steps=int(1e9), show=False):
     # Using aicrowd_gym is important! Your submission will not work otherwise
-    logging.debug("env = aicrowd_gym.make(env)")
     env = aicrowd_gym.make(env)
     agent_parameters = pickle.load(open(model, "rb"))
     policy_kwargs = agent_parameters["model"]["args"]["net"]["args"]
     pi_head_kwargs = agent_parameters["model"]["args"]["pi_head_opts"]
     pi_head_kwargs["temperature"] = float(pi_head_kwargs["temperature"])
-    logging.debug(f"MineRLAgent(env, policy_kwargs=policy_kwargs, pi_head_kwargs=pi_head_kwargs)")
     agent = MineRLAgent(env, policy_kwargs=policy_kwargs, pi_head_kwargs=pi_head_kwargs)
-    logging.debug(f"agent.load_weights(weights)")
     agent.load_weights(weights)
 
-    logging.debug(f"Running {n_episodes} with {max_steps=}")
-
     for _ in range(n_episodes):
-        logging.debug("obs = env.reset()")
         obs = env.reset()
         for s in range(max_steps):
             action = agent.get_action(obs)

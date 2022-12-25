@@ -1,5 +1,5 @@
 # Train one model for each task
-from src.behavioural_cloning import behavioural_cloning_train
+from src.behavioural_cloning_original import behavioural_cloning_train
 
 
 def main():
@@ -10,7 +10,7 @@ def main():
     #     in_weights="data/VPT-models/foundation-model-1x.weights",
     #     out_weights="train/MineRLBasaltFindCave.weights"
     # )
-
+    print('TRAIN ORIGINAL')
     print("===Training MakeWaterfall model===")
     behavioural_cloning_train(
         data_dir="../basalt_neurips_data/MineRLBasaltMakeWaterfall-v0",

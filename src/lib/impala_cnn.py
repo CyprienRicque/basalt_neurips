@@ -5,9 +5,9 @@ from typing import Dict, List, Optional
 from torch import nn
 from torch.nn import functional as F
 
-from src.openai_vpt.lib import misc
-from src.openai_vpt.lib import torch_util as tu
-from src.openai_vpt.lib.util import FanInInitReLULayer
+from src.lib import misc
+from src.lib import torch_util as tu
+from src.lib.util import FanInInitReLULayer
 
 
 class CnnBasicBlock(nn.Module):

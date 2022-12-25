@@ -10,7 +10,7 @@ import cv2
 from labeling_gui.jsonl_manager import JSONLManager
 
 TIMELINE_HEIGHT = 80
-FOLDER = "../basalt_neurips_data/BuildWaterFall/"
+TIMELINE_PADDING = 20
 
 def count_lines_jsonl(file) -> int:
     with open(file, 'r') as f:
@@ -30,11 +30,12 @@ def find_another_video(folder) -> Optional[str]:
 
 
 class MainWindow:
-    def __init__(self, root,
-                 file=FOLDER + 'cheeky-cornflower-setter-01b256a7cfb9-20220717-131452.mp4'):
+    def __init__(self, root, folder, file_name='cheeky-cornflower-setter-01b256a7cfb9-20220717-131452.mp4'):
         root.geometry("1500x900")
 
-        self.load_video(file)
+        self.folder = folder
+        self.current_file = folder + file_name
+        self.load_video(self.current_file)
 
         width = self.video_capture.get(cv2.CAP_PROP_FRAME_WIDTH)  # float `width`
         height = self.video_capture.get(cv2.CAP_PROP_FRAME_HEIGHT)  # float `height`
@@ -160,7 +161,7 @@ class MainWindow:
 
     def on_timeline_click(self, event=None):
         # Calculate the timestamp of the clicked location on the timeline
-        clicked_timestamp = event.x / self.timeline_canvas.winfo_width() * self.total_duration
+        clicked_timestamp = (event.x - TIMELINE_PADDING) / (self.timeline_canvas.winfo_width() - TIMELINE_PADDING * 2) * self.total_duration
 
         # Set the current frame to the corresponding frame in the video
         self.set_main_timestamp(clicked_timestamp)
@@ -169,8 +170,8 @@ class MainWindow:
 
     def open_next_video(self, event=None):
         self.jsonl_manager.dump()
-        file = find_another_video(FOLDER)
-        self.load_video(FOLDER + file)
+        file = find_another_video(self.folder)
+        self.load_video(self.folder + file)
 
     def load_video(self, file):
         # Open the video file
@@ -221,14 +222,12 @@ class MainWindow:
 
         # Calculate the width of the timeline
         timeline_width = self.timeline_canvas.winfo_width()
-        print(f"{timeline_width=}")
         # Add margin
-        xy_margin = 20
+        xy_margin = TIMELINE_PADDING
         timeline_width -= 2 * xy_margin
 
         # Draw the current timestamp indicator on the timeline
         current_timestamp_x = (self.current_timestamp / self.total_duration * timeline_width) + xy_margin
-        print(f"line at {current_timestamp_x}")
         self.timeline_canvas.create_line(current_timestamp_x, 20, current_timestamp_x, TIMELINE_HEIGHT, fill='red')
         self.timeline_canvas.create_text(current_timestamp_x, 10,
                                          text=f"{int(-1 if self.current_frame is None else self.current_frame)}",
@@ -301,8 +300,13 @@ class MainWindow:
         self.canvas.image = frame_photo_image
 
 
+def run_labeler(folder):
+    root = tk.Tk()
+    main_window = MainWindow(root, folder)
+    root.mainloop()
+
+
 # Create the main window
 if __name__ == "__main__":
-    root = tk.Tk()
-    main_window = MainWindow(root)
-    root.mainloop()
+    FOLDER = "../basalt_neurips_data/MineRLBasaltMakeWaterfall-v0/"
+    run_labeler(FOLDER)

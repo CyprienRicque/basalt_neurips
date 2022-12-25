@@ -3,9 +3,9 @@ import functools
 import torch as th
 from torch import nn
 
-import src.openai_vpt.lib.xf as xf
-from src.openai_vpt.lib.minecraft_util import store_args
-from src.openai_vpt.lib.tree_util import tree_map
+import src.lib.xf as xf
+from src.lib.minecraft_util import store_args
+from src.lib.tree_util import tree_map
 
 
 @functools.lru_cache()

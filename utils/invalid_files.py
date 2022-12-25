@@ -3,7 +3,7 @@ import os
 
 from utils.download_dataset import is_valid_jsonl, is_valid_mp4, remove_if_exists
 
-directory = "./../basalt_neurips_data/BuildWaterFall/"
+directory = "./../basalt_neurips_data/MineRLBasaltMakeWaterfall-v0/"
 
 
 def invalid_actions(directory):
