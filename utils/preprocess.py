@@ -65,7 +65,6 @@ def export_jsonl(output_filename, jsons):
 
 
 def rm_noop(data_dir):
-
     data_loader = DataLoader(
         dataset_dir=data_dir,
         n_workers=N_WORKERS,
@@ -74,9 +73,10 @@ def rm_noop(data_dir):
         dataset_max_size=-1,
         apply_bgr2rgb=False,
         exclude=lambda id_: (os.path.exists(id_.replace(".mp4", EXT_FORMAT + ".mp4")) and
-                            os.path.exists(id_.replace(".mp4", EXT_FORMAT + ".jsonl")) and
-                            os.path.exists(id_.replace(".mp4", EXT_FORMAT + "_annotations.jsonl"))) or
-        "hazy-thistle-chipmunk-3709e095cc5e-20220718-201514" in id_
+                             os.path.exists(id_.replace(".mp4", EXT_FORMAT + ".jsonl")) and
+                             os.path.exists(id_.replace(".mp4", EXT_FORMAT + "_annotations.jsonl"))) or
+                            "hazy-thistle-chipmunk-3709e095cc5e-20220718-201514" in id_ or
+                            "lovely-persimmon-angora-7cddf2a5f034-20220715-221133" in id_
     )
 
     agent = MineRLAgent(
