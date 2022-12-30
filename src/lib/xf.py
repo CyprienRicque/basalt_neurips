@@ -17,15 +17,15 @@ SENTINEL = 0.1337
 
 
 def attention(
-    Q_bte,
-    K_bTe,
-    V_bTe,
-    dtype,
-    mask=True,
-    extra_btT=None,
-    maxlen=None,
-    check_sentinel=False,
-    use_muP_factor=False,
+        Q_bte,
+        K_bTe,
+        V_bTe,
+        dtype,
+        mask=True,
+        extra_btT=None,
+        maxlen=None,
+        check_sentinel=False,
+        use_muP_factor=False,
 ):
     """
     performs softmax(Q*K)*V operation
@@ -46,7 +46,8 @@ def attention(
     if isinstance(mask, th.Tensor):
         bias = (~mask).float() * -1e9
     elif mask:
-        bias = get_attn_bias_cached(Q_bte.shape[1], K_bTe.shape[1], maxlen=maxlen, device=Q_bte.device, dtype=th.float32)
+        bias = get_attn_bias_cached(Q_bte.shape[1], K_bTe.shape[1], maxlen=maxlen, device=Q_bte.device,
+                                    dtype=th.float32)
     else:
         bias = Q_bte.new_zeros((), dtype=th.float32)
     if extra_btT is not None:
@@ -160,7 +161,7 @@ class StridedAttn(Attn):
             if x.shape[2] < required_len:
                 x = F.pad(x, (0, 0, required_len - x.shape[2], 0), value=SENTINEL)
             assert x.shape[2] >= required_len
-            back = x[:, :, -Q_t - self.maxlen : -self.maxlen]
+            back = x[:, :, -Q_t - self.maxlen: -self.maxlen]
             front = x[:, :, -Q_t:]
             x = th.cat([back, front], dim=1)
         _, _, t, _ = x.shape
@@ -229,18 +230,18 @@ B_SCALE = 0.2
 
 class AttentionLayerBase(nn.Module):
     def __init__(
-        self,
-        *,
-        attn,
-        scale,
-        x_size,
-        c_size,
-        qk_size,
-        v_size,
-        dtype,
-        relattn=False,
-        seqlens=None,
-        separate=False,
+            self,
+            *,
+            attn,
+            scale,
+            x_size,
+            c_size,
+            qk_size,
+            v_size,
+            dtype,
+            relattn=False,
+            seqlens=None,
+            separate=False,
     ):
         super().__init__()
         dtype = tu.parse_dtype(dtype)
@@ -295,17 +296,17 @@ class SelfAttentionLayer(AttentionLayerBase):
     """
 
     def __init__(
-        self,
-        x_size,
-        attn,
-        scale,
-        dtype="float32",
-        norm="layer",
-        cache_keep_len=None,
-        relattn=False,
-        log_scope="sa",
-        use_muP_factor=False,
-        **kwargs,
+            self,
+            x_size,
+            attn,
+            scale,
+            dtype="float32",
+            norm="layer",
+            cache_keep_len=None,
+            relattn=False,
+            log_scope="sa",
+            use_muP_factor=False,
+            **kwargs,
     ):
         super().__init__(
             x_size=x_size,
@@ -331,14 +332,20 @@ class SelfAttentionLayer(AttentionLayerBase):
         self.cache_keep_len = cache_keep_len
         self.log_scope = log_scope
         self.use_muP_factor = use_muP_factor
+        self.states_K = None
+        self.states_V = None
+        self.states_dim = None
+        self.states_size = None
 
-    def residual(self, X_bte, state):
+    def residual(self, X_bte, ids):
         X_bte = self.ln_x(X_bte)
         Q_bte = self.q_layer(X_bte)
         K_bte = self.k_layer(X_bte)
         V_bte = self.v_layer(X_bte)
-        if state:
-            state, K_bte, V_bte = self.update_state(state, K_bte, V_bte)
+        if ids.shape[0]:
+            K_bte, V_bte = self.update_state(ids, K_bte, V_bte)
+        else:
+            raise RuntimeError("This should not happen")
         postproc_closure, Q_bte, K_bte, V_bte = self.attn.preproc_qkv(Q_bte, K_bte, V_bte)
         extra_btT = self.relattn_logits(X_bte, K_bte.shape[1]) if self.relattn else None
         A_bte = attention(
@@ -354,17 +361,17 @@ class SelfAttentionLayer(AttentionLayerBase):
         )
         A_bte = postproc_closure(A_bte)
         Aproj_bte = self.proj_layer(A_bte)
-        return Aproj_bte, state
+        return Aproj_bte
 
-    def forward(self, X_bte, state):
-        R_bte, state = self.residual(X_bte, state)
-        return X_bte + R_bte, state
+    def forward(self, X_bte, ids):
+        R_bte = self.residual(X_bte, ids)
+        return X_bte + R_bte
 
     def stateless_forward(self, X_bte):
         out_bte, _state = self.forward(X_bte, None)
         return out_bte
 
-    def update_state(self, state, K_bte, V_bte):
+    def update_state(self, ids, K_bte, V_bte):
         def append(prev, new):
             """
             Given `prev` keys from cache, and `new` keys,
@@ -379,26 +386,51 @@ class SelfAttentionLayer(AttentionLayerBase):
             tprev = prev.shape[1]
             startfull = max(tprev - self.cache_keep_len, 0)
             full = th.cat([prev[:, startfull:], new], dim=1)
-            outstate = full[:, max(full.shape[1] - (self.cache_keep_len), 0) :]
+            outstate = full[:, max(full.shape[1] - (self.cache_keep_len), 0):]
             # To see that the preceding slicing is correct, consider the case
             # that maxlen==1. Then `full` only consists of `new`, and
             # `outstate` is empty
             return outstate, full
 
-        instate_K, instate_V = state
+        instate_K, instate_V = self.get_states(ids)
+        # print(f"{instate_K.shape=}, {instate_V.shape=}")
         outstate_K, K_bte = append(instate_K, K_bte)
         outstate_V, V_bte = append(instate_V, V_bte)
         assert outstate_K.shape[-2] <= self.cache_keep_len
-        return (outstate_K, outstate_V), K_bte, V_bte
+        self.states_K.weight[ids] = outstate_K.view(len(ids), self.states_size)
+        self.states_V.weight[ids] = outstate_V.view(len(ids), self.states_size)
+        return K_bte, V_bte
 
-    def initial_state(self, batchsize, initial_T=0):
-        return (
-            tu.zeros((batchsize, initial_T, self.x_size), dtype=self.dtype),
-            tu.zeros((batchsize, initial_T, self.x_size), dtype=self.dtype),
-        )
+    def initial_state(self, n_ids: int, batchsize: int, initial_T=0) -> None:
+
+        self.states_dim = (initial_T, self.x_size)
+        self.states_size = initial_T * self.x_size
+
+        self.states_K = nn.Embedding(n_ids, self.states_size,
+                                     _weight=tu.zeros((n_ids, self.states_size), dtype=self.dtype), dtype=self.dtype)
+        self.states_V = nn.Embedding(n_ids, self.states_size,
+                                     _weight=tu.zeros((n_ids, self.states_size), dtype=self.dtype), dtype=self.dtype)
+
+        self.states_K.requires_grad_(False)
+        self.states_V.requires_grad_(False)
+
+        # return (
+        #     tu.zeros((batchsize, initial_T, self.x_size), dtype=self.dtype),
+        #     tu.zeros((batchsize, initial_T, self.x_size), dtype=self.dtype),
+        # )
+
+    def reset_states(self, ids: th.Tensor) -> None:
+        self.states_K.weight[ids] = th.zeros((len(ids), self.states_size), dtype=self.dtype,
+                                             device=self.states_K.weight.device)
+        self.states_V.weight[ids] = th.zeros((len(ids), self.states_size), dtype=self.dtype,
+                                             device=self.states_V.weight.device)
+
+    def get_states(self, ids):
+        return self.states_K(ids).view(len(ids), *self.states_dim), \
+            self.states_V(ids).view(len(ids), *self.states_dim)
 
     def empty_state(self):
-        return None
+        raise NotImplementedError
 
 
 class PointwiseLayer(nn.Module):

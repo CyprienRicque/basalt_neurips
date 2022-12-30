@@ -1,5 +1,7 @@
 import functools
+from typing import Tuple
 
+import torch
 import torch as th
 from torch import nn
 
@@ -44,7 +46,8 @@ def get_band_diagonal_mask(t: int, T: int, maxlen: int, batchsize: int, device: 
     return m_btT
 
 
-def get_mask(first_b11: th.Tensor, state_mask: th.Tensor, t: int, T: int, maxlen: int, heads: int, device) -> th.Tensor:
+def get_mask(first_b11: th.Tensor, state_mask: th.Tensor, t: int, T: int, maxlen: int, heads: int, device) -> Tuple[
+    th.Tensor, th.Tensor]:
     """Returns a band diagonal mask that respects masking past states (columns 0:T-t inclusive)
         if first_b11 is True. See get_band_diagonal_mask for how the base mask is computed.
         This function takes that mask and first zeros out any past context if first_b11 is True.
@@ -73,7 +76,12 @@ def get_mask(first_b11: th.Tensor, state_mask: th.Tensor, t: int, T: int, maxlen
     b = first_b11.shape[0]
 
     if state_mask is None:
+        print(f"state_mask is None {b=} {T=} {t=}")
+        raise NotImplementedError('This should not happen')
         state_mask = th.zeros((b, 1, T - t), dtype=bool, device=device)
+    else:
+        assert state_mask.shape == th.zeros((b, 1, T - t),
+                                            dtype=bool).shape, f"{state_mask.shape=} {th.zeros((b, 1, T - t), dtype=bool).shape=}"
 
     m_btT = get_band_diagonal_mask(t, T, maxlen, b, device).clone()  # Should be shape B, t, T
     not_first = ~first_b11.to(device=device)
@@ -118,19 +126,20 @@ class MaskedAttention(nn.Module):
 
     @store_args
     def __init__(
-        self,
-        input_size,
-        memory_size: int,
-        heads: int,
-        timesteps: int,
-        mask: str = "clipped_causal",
-        init_scale=1,
-        norm="none",
-        log_scope="sa",
-        use_muP_factor=False,
+            self,
+            input_size,
+            memory_size: int,
+            heads: int,
+            timesteps: int,
+            mask: str = "clipped_causal",
+            init_scale=1,
+            norm="none",
+            log_scope="sa",
+            use_muP_factor=False,
     ):
         super().__init__()
 
+        self.state_mask_size = None
         assert mask in {"none", "clipped_causal"}
         assert memory_size >= 0
 
@@ -149,34 +158,56 @@ class MaskedAttention(nn.Module):
             log_scope=log_scope,
             use_muP_factor=use_muP_factor,
         )
+        self.state_mask_shape = None
+        self.state_mask = None
 
-    def initial_state(self, batchsize: int, device=None):
-        """Return the initial state mask (None) and the initial state of the transformer (zerod out keys and queries)"""
-        state = self.orc_block.initial_state(batchsize, initial_T=self.maxlen)
-        state_mask = None
-        if device is not None:
-            state = tree_map(lambda x: x.to(device), state)
-        return state_mask, state
-
-    def forward(self, input_bte, first_bt, state):
+    def forward(self, input_bte, first_bt, ids):  # x, first, ids
         """Forward propagation of a single layer"""
-        state_mask, xf_state = state
         t = first_bt.shape[1]
         if self.mask == "clipped_causal":
             new_mask, state_mask = get_mask(
                 first_b11=first_bt[:, [[0]]],
-                state_mask=state_mask,
+                state_mask=self.get_state_mask(ids),
                 t=t,
                 T=t + self.maxlen,
                 maxlen=self.maxlen,
                 heads=self.heads,
                 device=input_bte.device,
             )
+            self.state_mask.weight[ids] = state_mask.view(len(ids), self.state_mask_size).to(torch.float16)
             self.orc_block.attn.mask = new_mask
-        output, xf_state = self.orc_block(input_bte, xf_state)
+        output = self.orc_block(input_bte, ids)
 
-        return output, (state_mask, xf_state)
+        return output
+
+    def initial_state(self, n_ids, batchsize: int, device=None) -> None:
+        """Return the initial state mask (None) and the initial state of the transformer (zerod out keys and queries)"""
+        self.orc_block.initial_state(n_ids, batchsize, initial_T=self.maxlen)
+        # with torch.no_grad():
+        self.state_mask_shape = (1, self.maxlen)
+        self.state_mask_size = 1 * self.maxlen
+
+        self.state_mask = nn.Embedding(n_ids, self.state_mask_size,
+                                       _weight=th.zeros((n_ids, self.state_mask_size), dtype=torch.float16),
+                                       dtype=torch.float16)
+        self.state_mask.requires_grad_(False)
+
+        if device:
+            self.state_mask = self.state_mask.to(device)
+
+    def reset_states(self, ids: th.Tensor) -> None:
+        self.orc_block.reset_states(ids)
+        self.state_mask.weight[ids] = th.zeros((len(ids), self.state_mask_size), dtype=torch.float16,
+                                               device=self.state_mask.weight.device)
+        # print('state reset')
+        # print(f"{self.state_mask.weight=}")
+        # print(f"{self.state_mask.weight[ids]=}")
+
+    def get_state_mask(self, ids):
+        # print(f"{self.state_mask=}, {ids=}")
+        return self.state_mask(ids).view(len(ids), *self.state_mask_shape).to(torch.bool)
 
     def get_log_keys(self):
         # These are logged in xf.SelfAttentionLayer
-        return [f"activation_{stat}/{self.log_scope}/{k}" for k in ["K", "Q", "V", "A", "Aproj"] for stat in ["mean", "std"]]
+        return [f"activation_{stat}/{self.log_scope}/{k}" for k in ["K", "Q", "V", "A", "Aproj"] for stat in
+                ["mean", "std"]]

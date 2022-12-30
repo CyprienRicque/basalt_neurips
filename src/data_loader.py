@@ -9,12 +9,14 @@ from multiprocessing import Process, Queue, Event
 
 import numpy as np
 import cv2
+import torch
 
 from src.original_agent import resize_image, AGENT_RESOLUTION
 
 import logging
 
 
+EXT_FORMAT = "_preprocessed"
 LEVEL = logging.INFO
 
 logger = logging.getLogger(__name__)
@@ -164,7 +166,7 @@ def composite_images_with_alpha(image1, image2, alpha, x, y):
     ).astype(np.uint8)
 
 
-def data_loader_worker(tasks_queue, output_queue, quit_workers_event):
+def data_loader_worker(tasks_queue, output_queue, quit_workers_event, apply_bgr2rgb):
     """
     Worker for the data loader.
     """
@@ -180,14 +182,11 @@ def data_loader_worker(tasks_queue, output_queue, quit_workers_event):
             break
         trajectory_id, video_path, env_json_path, st_json_path = task
         video = cv2.VideoCapture(video_path)
-        # Note: In some recordings, the game seems to start
-        #       with attack always down from the beginning, which
+        # Note: In some recordings, the game seems to start with attack always down from the beginning, which
         #       is stuck down until player actually presses attack
         attack_is_stuck = False
-        # Scrollwheel is allowed way to change items, but this is
-        # not captured by the recorder.
-        # Work around this by keeping track of selected hotbar item
-        # and updating "hotbar.#" actions when hotbar selection changes.
+        # Scrollwheel is allowed way to change items, but this is not captured by the recorder.
+        # Work around this by keeping track of selected hotbar item and updating "hotbar.#" actions when hotbar selection changes.
         last_hotbar = 0
 
         with open(env_json_path) as env_json_file:
@@ -207,7 +206,14 @@ def data_loader_worker(tasks_queue, output_queue, quit_workers_event):
             if quit_workers_event.is_set():
                 break
             step_env_data = env_json_data[i]
-            step_st_data = st_json_data[i]
+            try:
+                step_st_data = st_json_data[i]
+            except:
+                print(f"index error {len(st_json_data)=} {st_json_path=} {i=}", flush=True)
+                logger.error(f"index error {len(st_json_data)=} {i=}")
+                raise Exception
+                # exit(1)
+            # print(f"process frame {env_json_path=}")
 
             attack_is_stuck = process_frame(
                 attack_is_stuck,
@@ -221,12 +227,13 @@ def data_loader_worker(tasks_queue, output_queue, quit_workers_event):
                 trajectory_id,
                 video,
                 video_path,
+                apply_bgr2rgb,
+                env_json_path,
             )
         video.release()
         # Signal that this task is done
-        # Yes we are using "None"s to tell when worker is done
-        # and when individual work-items are done...
-        output_queue.put((trajectory_id, None, None, None), timeout=QUEUE_TIMEOUT)
+        # Yes we are using "None"s to tell when worker is done and when individual work-items are done...
+        output_queue.put((trajectory_id, None, None, video_path.replace(".mp4", "")), timeout=QUEUE_TIMEOUT)
         if quit_workers_event.is_set():
             break
     # Tell that we ended
@@ -245,15 +252,21 @@ def process_frame(
     trajectory_id,
     video,
     video_path,
+    apply_bgr2rgb,
+    env_json_path,
 ):
-    if i == 0:
-        # Check if attack will be stuck down
-        if step_env_data["mouse"]["newButtons"] == [0]:
-            attack_is_stuck = True
-    elif attack_is_stuck:
-        # Check if we press attack down, then it might not be stuck
-        if 0 in step_env_data["mouse"]["newButtons"]:
-            attack_is_stuck = False
+    try:
+        if i == 0:
+            # Check if attack will be stuck down
+            if step_env_data["mouse"]["newButtons"] == [0]:
+                attack_is_stuck = True
+        elif attack_is_stuck:
+            # Check if we press attack down, then it might not be stuck
+            if 0 in step_env_data["mouse"]["newButtons"]:
+                attack_is_stuck = False
+    except KeyError as e:
+        logger.error(f"Error {e} file: {env_json_path}")
+        raise Exception
     # If still stuck, remove the action
     if attack_is_stuck:
         step_env_data["mouse"]["buttons"] = [
@@ -267,7 +280,11 @@ def process_frame(
     last_hotbar = current_hotbar
 
     # Read subtasks
-    subtasks = {"one_hot": np.zeros((30,))}
+    if step_st_data:  # TODO
+        logger.error(f"not coded: {step_st_data}")
+        raise Exception
+    else:
+        subtasks = {"one_hot": np.zeros((30,), dtype=np.uint8)}
 
     # Read frame even if this is null so we progress forward
     ret, frame = video.read()
@@ -281,10 +298,12 @@ def process_frame(
             camera_scaling_factor = frame.shape[0] / MINEREC_ORIGINAL_HEIGHT_PX
             cursor_x = int(step_env_data["mouse"]["x"] * camera_scaling_factor)
             cursor_y = int(step_env_data["mouse"]["y"] * camera_scaling_factor)
+            # print(f"{video_path=}")
             composite_images_with_alpha(
                 frame, cursor_image, cursor_alpha, cursor_x, cursor_y
             )
-        cv2.cvtColor(frame, code=cv2.COLOR_BGR2RGB, dst=frame)
+        if apply_bgr2rgb:
+            cv2.cvtColor(frame, code=cv2.COLOR_BGR2RGB, dst=frame)
         frame = np.asarray(np.clip(frame, 0, 255), dtype=np.uint8)
         frame = resize_image(frame, AGENT_RESOLUTION)
         output_queue.put((trajectory_id, frame, action, subtasks), timeout=QUEUE_TIMEOUT)
@@ -318,7 +337,9 @@ class DataLoader:
         n_epochs=1,
         max_queue_size=24,
         dataset_max_size=-1,
-        shuffle=True
+        shuffle=True,
+        apply_bgr2rgb=True,
+        exclude=lambda id_: False
     ):
         """
 
@@ -337,11 +358,13 @@ class DataLoader:
         self.n_epochs = n_epochs
         self.batch_size = batch_size
         self.max_queue_size = max_queue_size
+        self.apply_bgr2rgb = apply_bgr2rgb
 
         if shuffle is False:
             logging.warning("Shuffle is set to false")
 
         unique_ids = glob.glob(os.path.join(dataset_dir, "*.mp4"))
+        unique_ids = [id_ for id_ in unique_ids if (EXT_FORMAT not in id_ and not exclude(id_))]
         unique_ids = list(set([os.path.basename(x).split(".")[0] for x in unique_ids]))
         self.unique_ids = unique_ids[:dataset_max_size] if dataset_max_size != -1 else unique_ids
 
@@ -351,6 +374,7 @@ class DataLoader:
             video_path = os.path.abspath(os.path.join(dataset_dir, unique_id + ".mp4"))
             env_json_path = os.path.abspath(os.path.join(dataset_dir, unique_id + ".jsonl"))
             st_json_path = os.path.abspath(os.path.join(dataset_dir, unique_id + "_annotations.jsonl"))
+
             demonstration_tuples.append((video_path, env_json_path, st_json_path))
 
         assert n_workers <= len(
@@ -381,6 +405,7 @@ class DataLoader:
                     self.task_queue,
                     output_queue,
                     self.quit_workers_event,
+                    self.apply_bgr2rgb,
                 ),
                 daemon=True,
             )
@@ -393,26 +418,24 @@ class DataLoader:
         return self
 
     def __next__(self):
-        batch_frames, batch_actions, batch_subtasks, batch_episode_id = [], [], [], []
+        batch_frames, batch_actions, batch_subtasks, batch_episode_id, worker_ids = [], [], [], [], []
 
         for i in range(self.batch_size):
-            work_item = self.output_queues[self.n_steps_processed % self.n_workers].get(
-                timeout=QUEUE_TIMEOUT
-            )
+            worker_id = self.n_steps_processed % self.n_workers
+            work_item = self.output_queues[worker_id].get(timeout=QUEUE_TIMEOUT)
             if work_item is None:
-                # Stop iteration when first worker runs out of work to do.
-                # Yes, this has a chance of cutting out a lot of the work,
-                # but this ensures batches will remain diverse, instead
-                # of having bad ones in the end where potentially
-                # one worker outputs all samples to the same batch.
+                # Stop iteration when first worker runs out of work to do. Yes, this has a chance of cutting out a lot
+                # of the work, but this ensures batches will remain diverse, instead of having bad ones in the end where
+                # potentially one worker outputs all samples to the same batch.
                 raise StopIteration()
             trajectory_id, frame, action, subtasks = work_item
             batch_frames.append(frame)
             batch_actions.append(action)
             batch_subtasks.append(subtasks)
             batch_episode_id.append(trajectory_id)
+            worker_ids.append(worker_id)
             self.n_steps_processed += 1
-        return batch_frames, batch_actions, batch_subtasks, batch_episode_id
+        return batch_frames, batch_actions, batch_subtasks, batch_episode_id, worker_ids
 
     def __len__(self):
         total = 0

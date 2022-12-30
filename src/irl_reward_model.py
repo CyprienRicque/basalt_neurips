@@ -201,8 +201,8 @@ class IRLRewardModel:
         # The "first" argument could be used to reset tell episode
         # boundaries, but we are only using this for predicting (for now),
         # so we do not hassle with it yet.
-        agent_action, self.hidden_state, _ = self.policy.act(
-            agent_input, self._dummy_first, self.hidden_state,
+        agent_action, _ = self.policy.act(
+            agent_input, self._dummy_first,
             stochastic=True
         )
         minerl_action = self._agent_action_to_env(agent_action)

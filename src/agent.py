@@ -124,7 +124,7 @@ class MineRLAgent:
 
         self.policy = MinecraftAgentPolicy(**agent_kwargs).to(device)
         # print(f"{self.policy=}")
-        self.hidden_state = self.policy.initial_state(1)
+        self.policy.initial_state(1, 1)
         self._dummy_first = th.from_numpy(np.array((False,))).to(device)
 
     def load_weights(self, path):
@@ -134,7 +134,7 @@ class MineRLAgent:
 
     def reset(self):
         """Reset agent to initial state (i.e., reset hidden state)"""
-        self.hidden_state = self.policy.initial_state(1)
+        self.hidden_state = self.policy.initial_state(n_ids=1, batch_size=1)
 
     def _env_obs_to_agent(self, minerl_obs):
         """
@@ -142,11 +142,14 @@ class MineRLAgent:
 
         Returns torch tensors.
         """
-        agent_input = resize_image(minerl_obs["pov"], AGENT_RESOLUTION)[None]
+        # agent_input = resize_image(minerl_obs["pov"], AGENT_RESOLUTION)[None]
+        agent_input = minerl_obs["pov"][None]
         agent_input = {
             "img": th.from_numpy(agent_input).to(self.device),
-            "subtasks": minerl_obs["subtasks"] if "subtasks" in minerl_obs else th.tensor([1]).to(self.device)
+            # "subtasks": minerl_obs["subtasks"] if "subtasks" in minerl_obs else th.tensor([1]).to(self.device)
         }
+        if "subtasks" in minerl_obs:
+            agent_input["subtasks"] = minerl_obs["subtasks"]
         return agent_input
 
     def _agent_action_to_env(self, agent_action):
@@ -178,6 +181,7 @@ class MineRLAgent:
         If action is null, return "None" instead
         """
         minerl_action = self.action_transformer.env2policy(minerl_action_transformed)
+
         if check_if_null:
             if np.all(minerl_action["buttons"] == 0) and np.all(minerl_action["camera"] == self.action_transformer.camera_zero_bin):
                 return None
@@ -185,6 +189,7 @@ class MineRLAgent:
         # Add batch dims if not existant
         if minerl_action["camera"].ndim == 1:
             minerl_action = {k: v[None] for k, v in minerl_action.items()}
+
         action = self.action_mapper.from_factored(minerl_action)
         if to_torch:
             action = {k: th.from_numpy(v).to(self.device) for k, v in action.items()}

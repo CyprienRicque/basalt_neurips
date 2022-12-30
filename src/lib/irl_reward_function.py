@@ -178,15 +178,15 @@ class ILRRewardFunction(nn.Module):
         hidsize_camera = 16
 
         self.add_subtasks = ImplementActions(inchan=hidsize,
-        inchan_buttons=buttons_size,
-        inchan_camera=camera_size,
-        outchan=hidsize,
-        hidsize_buttons=hidsize_buttons,
-        hidsize_camera=hidsize_buttons,
-        hidsize_concat=hidsize_buttons + hidsize_camera + hidsize,
-        n_layers_actions=2,
-        n_layers_concat=2,
-        **self.dense_init_norm_kwargs)
+                                             inchan_buttons=buttons_size,
+                                             inchan_camera=camera_size,
+                                             outchan=hidsize,
+                                             hidsize_buttons=hidsize_buttons,
+                                             hidsize_camera=hidsize_buttons,
+                                             hidsize_concat=hidsize_buttons + hidsize_camera + hidsize,
+                                             n_layers_actions=2,
+                                             n_layers_concat=2,
+                                             **self.dense_init_norm_kwargs)
 
         self.pre_lstm_ln = nn.LayerNorm(hidsize) if use_pre_lstm_ln else None
         self.diff_obs_process = None
@@ -260,7 +260,7 @@ class MinecraftIRLRewardFunction(nn.Module):
     def __init__(self, action_space, policy_kwargs, pi_head_kwargs):
         super().__init__()
 
-        print(f"{policy_kwargs=}")
+        # print(f"{policy_kwargs=}")
         self.net = ILRRewardFunction(**policy_kwargs)
 
         self.action_space = action_space
@@ -334,9 +334,9 @@ class MinecraftIRLRewardFunction(nn.Module):
         obs = tree_map(lambda x: x.unsqueeze(1), obs)  # TODO check it works with subtasks
         first = first.unsqueeze(1)
 
-        (pd, vpred, _), state_out = self(obs=obs, first=first, state_in=state_in)
+        pd, vpred, _ = self(obs=obs, first=first, state_in=state_in)
 
-        return pd, self.value_head.denormalize(vpred)[:, 0], state_out
+        return pd, self.value_head.denormalize(vpred)[:, 0]
 
     @th.no_grad()
     def act(self, obs, first, state_in, stochastic: bool = True, taken_action=None, return_pd=False):
@@ -344,7 +344,7 @@ class MinecraftIRLRewardFunction(nn.Module):
         obs = tree_map(lambda x: x.unsqueeze(1), obs)
         first = first.unsqueeze(1)
 
-        (pd, vpred, _), state_out = self(obs=obs, first=first, state_in=state_in)
+        pd, vpred, _ = self(obs=obs, first=first, state_in=state_in)
 
         if taken_action is None:
             ac = self.pi_head.sample(pd, deterministic=not stochastic)
@@ -359,7 +359,7 @@ class MinecraftIRLRewardFunction(nn.Module):
             result["pd"] = tree_map(lambda x: x[:, 0], pd)
         ac = tree_map(lambda x: x[:, 0], ac)
 
-        return ac, state_out, result
+        return ac, result
 
     @th.no_grad()
     def v(self, obs, first, state_in):

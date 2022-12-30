@@ -204,13 +204,16 @@ class MinecraftPolicy(nn.Module):
     def output_latent_size(self):
         return self.hidsize
 
-    def forward(self, ob, state_in, context):
+    def forward(self, ob, ids, context):
         first = context["first"]
 
-        x = self.img_preprocess(ob["img"])
+        # logger.debug(f"{ob['img']=}")
+        x = self.img_preprocess(ob[0])
+        # logger.debug(f"{x=}")
         x = self.img_process(x)
 
         if self.diff_obs_process:
+            raise NotImplementedError("should not happen")
             processed_obs = self.diff_obs_process(ob["diff_goal"])
             x = processed_obs + x
 
@@ -218,26 +221,26 @@ class MinecraftPolicy(nn.Module):
             x = self.pre_lstm_ln(x)
 
         if self.recurrent_layer is not None:
-            x, state_out = self.recurrent_layer(x, first, state_in)
-        else:
-            state_out = state_in
+            x = self.recurrent_layer(x, first, ids)
 
         x = F.relu(x, inplace=False)
 
-        x = self.add_subtasks(th.cat((x, ob["subtasks"]), dim=2))
+        x = self.add_subtasks(th.cat((x, ob[1]), dim=2))
 
         x = self.lastlayer(x)
         x = self.final_ln(x)
         pi_latent = vf_latent = x
         if self.single_output:
-            return pi_latent, state_out
-        return (pi_latent, vf_latent), state_out
+            return pi_latent
+        return pi_latent, vf_latent
 
-    def initial_state(self, batchsize):
+    def initial_state(self, n_ids, batchsize):
         if self.recurrent_layer:
-            return self.recurrent_layer.initial_state(batchsize)
-        else:
-            return None
+            self.recurrent_layer.initial_state(n_ids, batchsize)
+
+    def reset_states(self, ids: th.Tensor) -> None:
+        if self.recurrent_layer:
+            self.recurrent_layer.reset_states(ids)
 
 
 class MinecraftAgentPolicy(nn.Module):
@@ -258,8 +261,8 @@ class MinecraftAgentPolicy(nn.Module):
     def make_action_head(self, pi_out_size: int, **pi_head_opts):
         return make_action_head(self.action_space, pi_out_size, **pi_head_opts)
 
-    def initial_state(self, batch_size: int):
-        return self.net.initial_state(batch_size)
+    def initial_state(self, n_ids: int, batch_size: int):
+        return self.net.initial_state(n_ids, batch_size)
 
     def reset_parameters(self):
         super().reset_parameters()
@@ -267,7 +270,10 @@ class MinecraftAgentPolicy(nn.Module):
         self.pi_head.reset_parameters()
         self.value_head.reset_parameters()
 
-    def forward(self, obs, first: th.Tensor, state_in):
+    def reset_states(self, ids: th.Tensor) -> None:
+        self.net.reset_states(ids)
+
+    def forward(self, obs, first: th.Tensor, ids):
         if isinstance(obs, dict):
             # We don't want to mutate the obs input.
             obs = obs.copy()
@@ -279,12 +285,12 @@ class MinecraftAgentPolicy(nn.Module):
         else:
             mask = None
 
-        (pi_h, v_h), state_out = self.net(obs, state_in, context={"first": first})
+        pi_h, v_h = self.net(obs, ids, context={"first": first})
 
         pi_logits = self.pi_head(pi_h, mask=mask)
         vpred = self.value_head(v_h)
 
-        return (pi_logits, vpred, None), state_out
+        return pi_logits, vpred, None
 
     def get_logprob_of_action(self, pd, action):
         """
@@ -302,7 +308,7 @@ class MinecraftAgentPolicy(nn.Module):
         """
         return self.pi_head.kl_divergence(pd1, pd2)
 
-    def get_output_for_observation(self, obs, state_in, first):
+    def get_output_for_observation(self, obs, ids, first):
         """
         Return gradient-enabled outputs for given observation.
 
@@ -312,15 +318,14 @@ class MinecraftAgentPolicy(nn.Module):
         Returns:
           - probability distribution given observation
           - value prediction for given observation
-          - new state
         """
         # We need to add a fictitious time dimension everywhere
         obs = tree_map(lambda x: x.unsqueeze(1), obs)  # TODO check it works with subtasks
         first = first.unsqueeze(1)
 
-        (pd, vpred, _), state_out = self(obs=obs, first=first, state_in=state_in)
+        pd, vpred, _ = self(obs=obs, first=first, ids=ids)
 
-        return pd, self.value_head.denormalize(vpred)[:, 0], state_out
+        return pd, self.value_head.denormalize(vpred)[:, 0]
 
     @th.no_grad()
     def act(self, obs, first, state_in, stochastic: bool = True, taken_action=None, return_pd=False):
@@ -328,7 +333,7 @@ class MinecraftAgentPolicy(nn.Module):
         obs = tree_map(lambda x: x.unsqueeze(1), obs)
         first = first.unsqueeze(1)
 
-        (pd, vpred, _), state_out = self(obs=obs, first=first, state_in=state_in)
+        (pd, vpred, _) = self(obs=obs, first=first, state_in=state_in)
 
         if taken_action is None:
             ac = self.pi_head.sample(pd, deterministic=not stochastic)
@@ -343,7 +348,7 @@ class MinecraftAgentPolicy(nn.Module):
             result["pd"] = tree_map(lambda x: x[:, 0], pd)
         ac = tree_map(lambda x: x[:, 0], ac)
 
-        return ac, state_out, result
+        return ac, result
 
     @th.no_grad()
     def v(self, obs, first, state_in):

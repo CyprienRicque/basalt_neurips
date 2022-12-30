@@ -304,21 +304,24 @@ class ResidualRecurrentBlocks(nn.Module):
             ]
         )
 
-    def forward(self, x, first, state):
+    def forward(self, x, first, ids):
         state_out = []
-        assert len(state) == len(
-            self.blocks
-        ), f"Length of state {len(state)} did not match length of blocks {len(self.blocks)}"
-        for block, _s_in in zip(self.blocks, state):
-            x, _s_o = block(x, first, _s_in)
-            state_out.append(_s_o)
-        return x, state_out
+        # assert len(state) == len(
+        #     self.blocks
+        # ), f"Length of state {len(state)} did not match length of blocks {len(self.blocks)}"
+        for block in self.blocks:
+            x = block(x, first, ids)
+        return x
 
-    def initial_state(self, batchsize):
-        if "lstm" in self.recurrence_type:
-            return [None for b in self.blocks]
-        else:
-            return [b.r.initial_state(batchsize) for b in self.blocks]
+    def initial_state(self, n_ids, batchsize) -> None:
+        if "lstm" not in self.recurrence_type:
+            for b in self.blocks:
+                b.r.initial_state(n_ids, batchsize)
+
+    def reset_states(self, ids: th.Tensor) -> None:
+        if "lstm" not in self.recurrence_type:
+            for b in self.blocks:
+                b.r.reset_states(ids)
 
 
 class ResidualRecurrentBlock(nn.Module):
@@ -365,6 +368,7 @@ class ResidualRecurrentBlock(nn.Module):
         self.pre_r_ln = nn.LayerNorm(hidsize)
         if recurrence_type in ["multi_layer_lstm", "multi_layer_bilstm"]:
             self.r = nn.LSTM(hidsize, hidsize, batch_first=True)
+            raise NotImplementedError("state lstm pb")
             nn.init.normal_(self.r.weight_hh_l0, std=s * (self.r.weight_hh_l0.shape[0] ** -0.5))
             nn.init.normal_(self.r.weight_ih_l0, std=s * (self.r.weight_ih_l0.shape[0] ** -0.5))
             self.r.bias_hh_l0.data *= 0
@@ -382,16 +386,17 @@ class ResidualRecurrentBlock(nn.Module):
                 mask=attention_mask_style,
             )
 
-    def forward(self, x, first, state):
+    def forward(self, x, first, ids):
         residual = x
         x = self.pre_r_ln(x)
-        x, state_out = recurrent_forward(
+        x = recurrent_forward(
             self.r,
             x,
             first,
-            state,
+            ids,
             reverse_lstm=self.recurrence_type == "multi_layer_bilstm" and (self.block_number + 1) % 2 == 0,
         )
+
         if self.is_residual and "lstm" in self.recurrence_type:  # Transformer already residual.
             x = x + residual
         if self.use_pointwise_layer:
@@ -400,11 +405,12 @@ class ResidualRecurrentBlock(nn.Module):
             x = self.mlp1(self.mlp0(x))
             if self.is_residual:
                 x = x + residual
-        return x, state_out
+        return x
 
 
-def recurrent_forward(module, x, first, state, reverse_lstm=False):
+def recurrent_forward(module, x, first, ids, reverse_lstm=False):
     if isinstance(module, nn.LSTM):
+        raise NotImplementedError
         if state is not None:
             # In case recurrent models do not accept a "first" argument we zero out the hidden state here
             mask = 1 - first[:, 0, None, None].to(th.float)
@@ -418,7 +424,7 @@ def recurrent_forward(module, x, first, state, reverse_lstm=False):
         state_out = tree_map(lambda _s: _s.transpose(0, 1), state_out)  # B, NL, H
         return x, state_out
     else:
-        return module(x, first, state)
+        return module(x, first, ids)
 
 
 def _banded_repeat(x, t):

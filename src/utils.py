@@ -76,3 +76,9 @@ def dataset_action_batch_to_actions(dataset_actions, camera_margin=5):
     return actions
 
 
+def count_lines(filenames):
+    total_lines = 0
+    for filename in filenames:
+        with open(filename) as f:
+            total_lines += sum(1 for _ in f)
+    return total_lines

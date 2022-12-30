@@ -166,7 +166,7 @@ def behavioural_cloning_train(
             )
 
             with torch.no_grad():
-                original_pi_distribution, _, _ = original_policy.get_output_for_observation(
+                original_pi_distribution, _ = original_policy.get_output_for_observation(
                     agent_obs, agent_state, dummy_first
                 )
 

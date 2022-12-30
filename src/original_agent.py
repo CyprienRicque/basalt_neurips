@@ -123,7 +123,7 @@ class MineRLAgent:
 
         self.policy = MinecraftAgentPolicy(**agent_kwargs).to(device)
         # print(f"{self.policy=}")
-        self.hidden_state = self.policy.initial_state(1)
+        self.policy.initial_state(1, 1)
         self._dummy_first = th.from_numpy(np.array((False,))).to(device)
 
     def load_weights(self, path):
@@ -133,7 +133,7 @@ class MineRLAgent:
 
     def reset(self):
         """Reset agent to initial state (i.e., reset hidden state)"""
-        self.hidden_state = self.policy.initial_state(1)
+        self.policy.initial_state(1, 1)
 
     def _env_obs_to_agent(self, minerl_obs):
         """

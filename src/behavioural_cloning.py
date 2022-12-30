@@ -141,10 +141,10 @@ def behavioural_cloning_train(
 
     loss_sum = 0
     pbar = tqdm(enumerate(data_loader), total=len(data_loader), desc=f"Avg loss: {loss_sum / LOSS_REPORT_RATE:.4f}")
-    for batch_i, (batch_images, batch_actions, batch_subtasks, batch_episode_id) in pbar:
+    for batch_i, (batch_images, batch_actions, batch_subtasks, batch_episode_id, worker_ids) in pbar:
         batch_loss = 0
-        for image, action, subtasks, episode_id in zip(
-            batch_images, batch_actions, batch_subtasks, batch_episode_id
+        for image, action, subtasks, episode_id, worker_id in zip(
+            batch_images, batch_actions, batch_subtasks, batch_episode_id, worker_ids
         ):
             if image is None and action is None:
                 # A work-item was done. Remove hidden state
@@ -164,17 +164,13 @@ def behavioural_cloning_train(
 
             agent_obs = agent._env_obs_to_agent({"pov": image, "subtasks": subtasks_labels})
 
-            if episode_id not in episode_hidden_states:
-                episode_hidden_states[episode_id] = policy.initial_state(1)
-            agent_state = episode_hidden_states[episode_id]
-
             pi_distribution, _, new_agent_state = policy.get_output_for_observation(
-                agent_obs, agent_state, dummy_first
+                agent_obs, dummy_first
             )
 
             with torch.no_grad():
-                original_pi_distribution, _, _ = original_policy.get_output_for_observation(
-                    agent_obs, agent_state, dummy_first
+                original_pi_distribution, _ = original_policy.get_output_for_observation(
+                    agent_obs, torch.tensor([worker_id], device=DEVICE), dummy_first
                 )
 
             log_prob = policy.get_logprob_of_action(pi_distribution, agent_action)

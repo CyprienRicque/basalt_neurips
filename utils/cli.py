@@ -56,6 +56,7 @@ rm_invalid_duos_parser = subparsers.add_parser("rm-invalid-duos")
 total_duration_parser = subparsers.add_parser("total-duration")
 delete_annotations_parser = subparsers.add_parser("delete-annotations")
 annotate_parser = subparsers.add_parser("annotate")
+summary_parser = subparsers.add_parser("summary")
 
 # Add arguments for the "download-dataset" functionality
 download_parser.add_argument("--json-file", type=str, required=True, help="Path to the JSON file containing the dataset information")
@@ -87,6 +88,10 @@ delete_annotations_parser.add_argument("--minutes", type=int, default=-1, help="
 # Add arguments for the "total-duration" functionality
 annotate_parser.add_argument("--directory", type=str, required=True, help="Directory containing the files")
 annotate_parser.add_argument("--verbose", type=int, default=1, help="Show verbose output")
+
+# Add arguments for the "summary" functionality
+summary_parser.add_argument("--directory", type=str, required=True, help="Directory containing the files")
+summary_parser.add_argument("--verbose", type=int, default=1, help="Show verbose output")
 
 
 # Parse the command line arguments
@@ -176,3 +181,50 @@ if args.functionality == "delete-annotations":
 
 if args.functionality == "annotate":
     run_labeler(f"{args.directory}/")
+
+
+if args.functionality == "summary":
+    def summarize_files(directory):
+        # Initialize counters for each type of file
+        mp4_count = 0
+        jsonl_count = 0
+        preprocessed_mp4_count = 0
+        preprocessed_jsonl_count = 0
+        annotations_jsonl_count = 0
+        preprocessed_annotations_jsonl_count = 0
+        missing_preprocessed_mp4_filenames = []
+
+        # Iterate through the files in the directory
+        for filename in os.listdir(directory):
+            # Increment the appropriate counter for each file type
+            if filename.endswith('_preprocessed.mp4'):
+                preprocessed_mp4_count += 1
+            elif filename.endswith('_preprocessed_annotations.jsonl'):
+                preprocessed_annotations_jsonl_count += 1
+            elif filename.endswith('_annotations.jsonl'):
+                annotations_jsonl_count += 1
+            elif filename.endswith('.mp4'):
+                mp4_count += 1
+            elif filename.endswith('_preprocessed.jsonl'):
+                preprocessed_jsonl_count += 1
+            elif filename.endswith('.jsonl'):
+                jsonl_count += 1
+            if filename.endswith('.mp4') and not filename.endswith('_preprocessed.mp4') and \
+                not os.path.exists(directory + "/" + filename.replace(".mp4", "_preprocessed.mp4")):
+                missing_preprocessed_mp4_filenames.append(directory + "/" + filename)
+
+        # Print the summary
+        print(f'Number of .mp4 files: {mp4_count}')
+        print(f'Number of .jsonl files: {jsonl_count}')
+        print(f'Number of _annotations.jsonl files: {annotations_jsonl_count}')
+        print(f'Number of _preprocessed.mp4 files: {preprocessed_mp4_count}')
+        print(f'Number of _preprocessed.jsonl files: {preprocessed_jsonl_count}')
+        print(f'Number of _preprocessed_annotations.jsonl files: {preprocessed_annotations_jsonl_count}')
+        # If the list of filenames that don't have their related _preprocessed.mp4 files is not empty, print the list
+        if missing_preprocessed_mp4_filenames:
+            print('Filenames missing _preprocessed.mp4 files:')
+            for filename in missing_preprocessed_mp4_filenames:
+                print(filename)
+
+    summarize_files(args.directory)
+
