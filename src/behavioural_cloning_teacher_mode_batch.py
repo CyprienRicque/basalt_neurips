@@ -7,6 +7,9 @@ import torch
 import numpy as np
 from tqdm import tqdm
 
+import sys
+sys.path.append("./")
+
 from src.agent import MineRLAgent
 from src.behavioural_cloning_common import setup_bc, BATCH_SIZE, N_WORKERS, EPOCHS, LOSS_REPORT_RATE, \
     MAX_GRAD_NORM, DATASET_MAX_SIZE, KL_LOSS_WEIGHT, model_forward, model_forward_batch
