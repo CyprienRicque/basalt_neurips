@@ -42,10 +42,10 @@ logger.addHandler(console_handler)
 
 EPOCHS = 1
 # Needs to be <= number of videos
-BATCH_SIZE = 34
+BATCH_SIZE = 4
 # Ideally more than batch size to create variation in datasets (otherwise, you will get a bunch of consecutive samples)
 # Decrease this (and batch_size) if you run out of memory
-N_WORKERS = 66
+N_WORKERS = 8
 DEVICE = "cuda"
 
 LOSS_REPORT_RATE = 100

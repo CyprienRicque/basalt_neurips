@@ -1,21 +1,14 @@
-from argparse import ArgumentParser
-import pickle
-import time
+import sys
 
-import gym
-import torch
 import numpy as np
+import torch
 from tqdm import tqdm
 
-import sys
 sys.path.append("./")
 
-from src.agent import MineRLAgent
 from src.behavioural_cloning_common import setup_bc, BATCH_SIZE, N_WORKERS, EPOCHS, LOSS_REPORT_RATE, \
-    MAX_GRAD_NORM, DATASET_MAX_SIZE, KL_LOSS_WEIGHT, model_forward, model_forward_batch
-from src.original_agent import MineRLAgent as MineRLAgent_original
+    MAX_GRAD_NORM, DATASET_MAX_SIZE, model_forward_batch
 from src.data_loader_s3 import DataLoader
-from src.lib.tree_util import tree_map
 
 import logging
 
@@ -75,9 +68,9 @@ def behavioural_cloning_train_teacher_batch(
     pbar = tqdm(enumerate(data_loader), total=len(data_loader), desc=f"Avg loss: {loss_sum / LOSS_REPORT_RATE:.4f}")
     for batch_i, (batch_images, batch_actions, batch_subtasks, batch_episode_id, worker_ids, finished_episodes) in pbar:
 
-        print(f"{worker_ids=}")
-        print(f"{finished_episodes=}")
-        print(f"{worker_ids[finished_episodes]=}")
+        # print(f"{worker_ids=}")
+        # print(f"{finished_episodes=}")
+        # print(f"{worker_ids[finished_episodes]=}")
 
         # Model
 

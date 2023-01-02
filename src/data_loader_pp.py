@@ -19,7 +19,7 @@ from src.original_agent import resize_image, AGENT_RESOLUTION
 
 import logging
 
-from src.utils import count_lines
+from src.tools import count_lines
 
 EXT_FORMAT = "_preprocessed"
 LEVEL = logging.INFO

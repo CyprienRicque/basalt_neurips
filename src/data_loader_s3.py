@@ -1,8 +1,4 @@
-# Code for loading OpenAI MineRL VPT datasets
-# (NOTE: Not the original code!)
 import json
-import glob
-import logging
 import os
 import random
 from multiprocessing import Process, Queue, Event
@@ -11,18 +7,17 @@ import boto3
 import numpy as np
 import cv2
 import torch
-from torch.utils.data import Dataset
-from tqdm import tqdm
-
-from src.agent import MineRLAgent
-from src.lib.tree_util import tree_map
-from src.original_agent import resize_image, AGENT_RESOLUTION
 
 import logging
 
-from src.utils import count_lines
-from src.utils.download_dataset import remove_if_exists
-from src.utils.io_s3_tools import threaded_download_from_s3, get_s3_files_ends_with
+import sys
+# sys.path.append("../")
+# sys.path.append("./")
+# sys.path.append("../../")
+
+from tools import count_lines
+from utils.download_dataset import remove_if_exists
+from utils.io_s3_tools import threaded_download_from_s3, get_s3_files_ends_with
 
 EXT_FORMAT = "_preprocessed"
 LEVEL = logging.INFO
@@ -35,7 +30,7 @@ formatter = logging.Formatter("[%(levelname)s] %(name)s: %(message)s")
 console_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
 
-QUEUE_TIMEOUT = 60
+QUEUE_TIMEOUT = 60 * 3
 
 CURSOR_FILE = os.path.join(
     os.path.dirname(__file__), "../cursors", "mouse_cursor_white_16x16.png"
@@ -53,8 +48,16 @@ def data_loader_worker(tasks_queue, output_queue, quit_workers_event, apply_bgr2
             break
         local_folder = "./tmp_data"
         unique_id, video_path, env_json_path, st_json_path = task
-        threaded_download_from_s3(s3, bucket_name="basalt-neurips", files=[video_path, env_json_path, st_json_path],
-                                  local_folder=local_folder, threads=2)
+        video_path = video_path.split("/")[-1]
+        env_json_path = env_json_path.split("/")[-1]
+        st_json_path = st_json_path.split("/")[-1]
+
+        res = threaded_download_from_s3(s3, bucket_name="basalt-neurips",
+                                        s3_prefix="basalt_neurips_data/MineRLBasaltMakeWaterfall-v0/",
+                                        files=[video_path, env_json_path, st_json_path],
+                                        local_folder=local_folder, threads=2, log_errors=True)
+
+        print(f"Download {'ok' if res else 'failed'}")
         video_path = os.path.join(local_folder, video_path)
         env_json_path = os.path.join(local_folder, env_json_path)
         st_json_path = os.path.join(local_folder, st_json_path)
@@ -173,8 +176,9 @@ class DataLoader:
         if shuffle is False:
             logging.warning("Shuffle is set to false")
 
-        s3 = boto3.client('s3')
-        unique_ids = get_s3_files_ends_with(s3, "basalt-neurips", "basalt_neurips_data/MineRLBasaltMakeWaterfall-v0/", "mp4")
+        self.s3 = boto3.client('s3')
+        unique_ids = get_s3_files_ends_with(self.s3, "basalt-neurips",
+                                            "basalt_neurips_data/MineRLBasaltMakeWaterfall-v0/", "mp4")
         unique_ids = [id_ for id_ in unique_ids if (not exclude(id_))]
         unique_ids = list(set([os.path.basename(x).split(".")[0] for x in unique_ids]))
         self.unique_ids = unique_ids[:dataset_max_size] if dataset_max_size != -1 else unique_ids
@@ -217,6 +221,7 @@ class DataLoader:
                     output_queue,
                     self.quit_workers_event,
                     self.apply_bgr2rgb,
+                    self.s3,
                 ),
                 daemon=True,
             )

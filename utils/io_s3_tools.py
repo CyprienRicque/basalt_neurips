@@ -12,7 +12,6 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 import logging
 
-
 LEVEL = logging.INFO
 
 logger = logging.getLogger(__name__)
@@ -24,14 +23,14 @@ console_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
 
 
-def get_s3_files(s3, bucket_name, folder: str) -> List:
+def get_s3_files(s3, bucket_name, s3_prefix: str) -> List:
     objects = []
 
     # Create a reusable Paginator
     paginator = s3.get_paginator('list_objects')
 
     # Create a PageIterator from the Paginator, filtered by the specified folder prefix
-    page_iterator = paginator.paginate(Bucket=bucket_name, Prefix=folder)
+    page_iterator = paginator.paginate(Bucket=bucket_name, Prefix=s3_prefix)
 
     for page in page_iterator:
         objects += page['Contents']
@@ -39,22 +38,26 @@ def get_s3_files(s3, bucket_name, folder: str) -> List:
     return objects
 
 
-def get_s3_files_ends_with(s3, bucket_name, folder: str, ends_with) -> List[str]:
-    objects = get_s3_files(s3, bucket_name, folder)
+def get_s3_files_ends_with(s3, bucket_name, s3_prefix: str, ends_with) -> List[str]:
+    objects = get_s3_files(s3, bucket_name, s3_prefix)
 
     objects = [obj['Key'] for obj in objects if obj['Key'].endswith(ends_with)]
     return objects
 
 
-def threaded_download_from_s3(s3, bucket_name, files, local_folder, threads: int = 30, show_progress: bool = False,
+def threaded_download_from_s3(s3, bucket_name, s3_prefix, files, local_folder, threads: int = 30,
+                              show_progress: bool = False,
                               log_errors: bool = False):
     with ThreadPoolExecutor(max_workers=threads) as executor:
         if show_progress:
             it = tqdm(files)
         # Submit tasks to download the files from S3
-        # print(f"{bucket_name=} {local_folder=} {files[0]=}")
-        # print(files)
-        futures = [executor.submit(s3.download_file, bucket_name, file, os.path.join(local_folder, file)) for file in files]
+
+        # print([(bucket_name, os.path.join(s3_prefix, file), os.path.join(local_folder, file)) for file in
+        #            files])
+        futures = [executor.submit(s3.download_file, bucket_name, os.path.join(s3_prefix, file),
+                                   os.path.join(local_folder, file)) for file in
+                   files]
 
         # Iterate over the completed tasks
         for future in as_completed(futures):
@@ -63,8 +66,8 @@ def threaded_download_from_s3(s3, bucket_name, files, local_folder, threads: int
             # Check the status of the task
             if future.exception():
                 if log_errors:
-                    logger.error(f"Error downloading file: {future.result()}")
-                for future_ in tqdm(futures, desc="shutdown"):
+                    logger.error(f"Error downloading file: [[[[[[{future.result()}]]]]]]")
+                for future_ in futures:
                     future_.shutdown(wait=False)
                 return False
     return True
@@ -80,6 +83,7 @@ if __name__ == "__main__":
         # Create a ThreadPoolExecutor with a certain number of threads
 
         threaded_download_from_s3(s3, bucket_name=bucket_name,
+                                  s3_prefix="basalt_neurips_data/MineRLBasaltMakeWaterfall-v0/",
                                   files=objects,
                                   local_folder=local_folder,
                                   threads=threads,
@@ -92,5 +96,3 @@ if __name__ == "__main__":
                             local_folder='../../',
                             file_extensions=[pp_video, pp_actions, pp_annotations],
                             threads=30)
-
-
